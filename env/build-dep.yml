@@ -23,7 +23,7 @@
         - libgflags-dev
         - libgoogle-glog-dev
         - libgtest-dev
-        - python
+        #- python
         - pkg-config
 
     # pre-packaged meat for Bionic Beaver or higher

@@ -7,8 +7,8 @@
       with_items:
         - apt-transport-https
         - ca-certificates
-        - python
-        - python-pip
+        #- python
+        #- python-pip
         - libgraph-easy-perl
         - tcpdump
 
@@ -18,7 +18,10 @@
           - protobuf
           - grpcio
           - scapy
+        virtualenv: /home/nsladmin/.pyenv/versions/3.6.0/envs/bess-env/
+        virtualenv_python: python3.6
         state: latest
+
       become: true
 
     - shell: ls -d /sys/devices/system/node/node* | wc -l
