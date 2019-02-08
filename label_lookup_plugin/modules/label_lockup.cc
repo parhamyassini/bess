@@ -419,23 +419,23 @@ CommandResponse LabelLookup::CommandAdd(
 
         int r = mdc_add_entry(&mdc_table_, mdc_addr_to_u64(addr), label);
 
-        mdc_label_t out_label;
-//        uint64_t pkt_data = 2162346236755973638;
+        uint64_t pkt_data = 2162346236755973638;
         std::cout << "Added?" << r << std::endl;
         std::cout << mdc_table_.count << std::endl;
 
         std::cout << label << std::endl;
         std::cout << mdc_addr_to_u64(addr) << std::endl;
-//
-//        for (uint64_t i = 0; i < mdc_table_.count; i++) {
-        std::cout << mdc_table_.table[164].label << std::endl;
-        std::cout << mdc_table_.table[164].addr << std::endl;
-//        }
 
+        mdc_label_t out_label;
+//        int ret = mdc_find(&mdc_table_,
+//                           mdc_addr_to_u64(addr),
+//                           &out_label);
         int ret = mdc_find(&mdc_table_,
-                           mdc_addr_to_u64(addr),
-                           &out_label);
+                          pkt_data & 0x0000ffffffffffff,
+                          &out_label);
         std::cout << "Found?" << ret << std::endl;
+        std::cout << "Found Label" << out_label << std::endl;
+        std::cout << std::hex << std::setw(2) << std::setfill('0') << out_label << " ";
 
         if (r == -EEXIST) {
             return CommandFailure(EEXIST, "MAC address '%s' already exist", str_addr);
@@ -471,13 +471,13 @@ void LabelLookup::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
 //        Ethernet::Address eth_dst = eth->dst_addr;
 
         mdc_label_t out_label = 0x0a0b0c;
-        std::cout << "Pkt Data," << *(pkt->head_data<uint64_t *>()) << std::endl;
-//        int ret = mdc_find(&mdc_table_,
-//                           *(pkt->head_data<uint64_t *>()) & 0x0000ffffffffffff,
-//                           &out_label);
-//        if (ret != 0) {
-//            out_label = 0x0a0b0c;
-//        }
+//        std::cout << "Pkt Data," << *(pkt->head_data<uint64_t *>()) << std::endl;
+        int ret = mdc_find(&mdc_table_,
+                           *(pkt->head_data<uint64_t *>()) & 0x0000ffffffffffff,
+                           &out_label);
+        if (ret != 0) {
+            out_label = 0x0a0b0c;
+        }
 
         be32_t *p = pkt->head_data<be32_t *>(sizeof(Ethernet));
         *p = (be32_t(1) << 24) | be32_t(out_label);

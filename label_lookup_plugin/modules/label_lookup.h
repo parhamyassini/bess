@@ -57,7 +57,7 @@ using bess::utils::Mdc;
 
 #define MDC_MAX_TABLE_SIZE (1048576 * 64)
 #define MDC_DEFAULT_TABLE_SIZE 1024
-#define MDC_MAX_BUCKET_SIZE 4
+#define MDC_MAX_BUCKET_SIZE 8
 
 typedef uint64_t mac_addr_t;
 typedef uint32_t mdc_label_t;
@@ -66,7 +66,7 @@ struct alignas(32) mdc_entry {
     union {
         struct {
             uint64_t addr : 48;
-            uint64_t label : 32;
+            uint64_t label : 24;
             uint64_t occupied : 1;
         };
         uint64_t entry;
