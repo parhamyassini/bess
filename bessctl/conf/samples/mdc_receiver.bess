@@ -31,22 +31,22 @@
 import scapy.all as scapy
 
 
-class MDC(scapy.Packet):
-    name = 'MulticastDataCenter '
+class MDCData(scapy.Packet):
+    name = 'MulticastDataCenterData '
     fields_desc=[scapy.XByteField('mode', 0), scapy.X3BytesField('label' , 0)]
 
 
 eth = scapy.Ether(src='02:1e:67:9f:4d:ae', dst='06:16:3e:1b:72:32', type=0xdede)
-mdc = MDC(mode=0x0, label=0x0)
+mdc_data = MDCData(mode=0x0, label=0x0)
 ip = scapy.IP(src='192.168.1.1', dst='10.0.0.1')
 udp = scapy.UDP(sport=10001, dport=10002)
 payload = 'helloworld'
-pkt = eth/mdc/ip/udp/payload
+pkt = eth/mdc_data/ip/udp/payload
 pkt_bytes = bytes(pkt)
 
 pkt.show()
 
-mdc = LabelLookup()
-mdc.add(entries=[{'addr': '06:16:3e:1b:72:32', 'label': 0xCCCCCC}])
+mdc_rec = MdcReceiver()
+mdc_rec.add(entries=[{'addr': '06:16:3e:1b:72:32', 'label': 0xCCCCCC}])
 
-Source() -> Rewrite(templates=[pkt_bytes]) -> mdc -> Dump(interval=1) -> Sink()
+Source() -> Rewrite(templates=[pkt_bytes]) -> mdc_rec -> Dump(interval=1) -> Sink()

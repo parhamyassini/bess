@@ -41,7 +41,8 @@ namespace bess {
     namespace utils {
 
         struct [[gnu::packed]] Mdc {
-            static const uint16_t kType = 0xdede;
+            static const uint16_t kDataType = 0xdede;
+            static const uint16_t kControlType = 0xdedd;
 
         };
 

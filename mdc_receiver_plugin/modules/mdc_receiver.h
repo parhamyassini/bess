@@ -39,7 +39,7 @@
 #include "utils/mdc.h"
 #include "utils/exact_match_table.h"
 
-#include "pb/label_lookup_msg.pb.h"
+#include "pb/mdc_receiver_msg.pb.h"
 
 
 //using bess::utils::ExactMatchField;
@@ -82,24 +82,22 @@ struct mdc_table {
 };
 
 
-class LabelLookup final : public Module {
+class MdcReceiver final : public Module {
 public:
   static const Commands cmds;
 
-  LabelLookup() : Module(), mdc_table_() {}
+  MdcReceiver() : Module(), mdc_table_() {}
 
-  CommandResponse Init(const sample::label_lookup::pb::LabelLookupArg &arg);
+  CommandResponse Init(const sample::mdc_receiver::pb::MdcReceiverArg &arg);
   void DeInit();
 
   void ProcessBatch(Context *ctx, bess::PacketBatch *batch) override;
 
-  CommandResponse
-  CommandAdd(const sample::label_lookup::pb::LabelLookupArg &arg);
+  CommandResponse CommandAdd(const sample::mdc_receiver::pb::MdcReceiverArg &arg);
   CommandResponse CommandClear(const bess::pb::EmptyArg &arg);
 
 private:
     struct mdc_table mdc_table_;
-//    ExactMatchTable<mdc_label_t> table_;
 };
 
 #endif // BESS_MODULES_LABELLOOKUP_H_

@@ -29,13 +29,13 @@
 
 syntax = "proto3";
 
-package sample.label_lookup.pb;
+package sample.mdc_receiver.pb;
 
 /**
  * The function `clear()` for SequentialUpdate takes no parameters and clears all
  * state in the module.
  */
-message LabelLookupCommandClearArg {
+message MdcReceiverCommandClearArg {
 }
 
 /**
@@ -45,7 +45,7 @@ message LabelLookupCommandClearArg {
  * __Input Gates__: 1
  * __Output Gates__: 1
  */
-message LabelLookupArg {
+message MdcReceiverArg {
   /**
    * SequentialUpdate's Field specifies where to rewrite, and what values to rewrite
    * in each packet processed.

@@ -28,7 +28,7 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-#include "label_lookup.h"
+#include "mdc_receiver.h"
 
 
 static int is_power_of_2(uint64_t n) {
@@ -152,7 +152,6 @@ static inline int mdc_find(struct mdc_table *mdc_tbl, uint64_t addr,
 
     if (mdc_tbl->bucket == 4) {
         int tmp1 = find_index(addr, &tbl[offset].entry, mdc_tbl->count);
-        std::cout << "tmp1" << tmp1 << std::endl;
         if (tmp1) {
             *label = tbl[offset + tmp1 - 1].label;
             return 0;
@@ -162,8 +161,6 @@ static inline int mdc_find(struct mdc_table *mdc_tbl, uint64_t addr,
         offset = mdc_ib_to_offset(mdc_tbl, idx1, 0);
 
         int tmp2 = find_index(addr, &tbl[offset].entry, mdc_tbl->count);
-
-        std::cout << "tmp2" << tmp2 << std::endl;
 
         if (tmp2) {
             *label = tbl[offset + tmp2 - 1].label;
@@ -306,7 +303,6 @@ static int mdc_add_entry(struct mdc_table *mdc_tbl, mac_addr_t addr,
     /* insert entry into empty slot */
     offset = mdc_ib_to_offset(mdc_tbl, index, bucket);
 
-    std::cout << "OFFSET" << offset << std::endl;
     mdc_tbl->table[offset].addr = addr;
     mdc_tbl->table[offset].label = label;
     mdc_tbl->table[offset].occupied = 1;
@@ -364,15 +360,15 @@ static int parse_mac_addr(const char *str, char *addr) {
 /******************************************************************************/
 
 
-const Commands LabelLookup::cmds = {
-        {"add",   "LabelLookupArg",
-                              MODULE_CMD_FUNC(&LabelLookup::CommandAdd), Command::THREAD_UNSAFE},
-        {"clear", "EmptyArg", MODULE_CMD_FUNC(&LabelLookup::CommandClear),
+const Commands MdcReceiver::cmds = {
+        {"add",   "MdcReceiverArg",
+                              MODULE_CMD_FUNC(&MdcReceiver::CommandAdd), Command::THREAD_UNSAFE},
+        {"clear", "EmptyArg", MODULE_CMD_FUNC(&MdcReceiver::CommandClear),
                                                                          Command::THREAD_UNSAFE},
 };
 
 CommandResponse
-LabelLookup::Init(const sample::label_lookup::pb::LabelLookupArg &) {
+MdcReceiver::Init(const sample::mdc_receiver::pb::MdcReceiverArg &) {
     int ret = 0;
     int size = MDC_DEFAULT_TABLE_SIZE;
     int bucket = MDC_MAX_BUCKET_SIZE;
@@ -385,24 +381,19 @@ LabelLookup::Init(const sample::label_lookup::pb::LabelLookupArg &) {
                               "size: '%d' bucket: '%d'",
                               size, bucket);
     }
-    std::cout << "Init" << ret << std::endl;
     return CommandSuccess();
 
 }
 
-void LabelLookup::DeInit() {
+void MdcReceiver::DeInit() {
     mdc_deinit(&mdc_table_);
 }
 
-CommandResponse LabelLookup::CommandAdd(
-        const sample::label_lookup::pb::LabelLookupArg &arg) {
+CommandResponse MdcReceiver::CommandAdd(
+        const sample::mdc_receiver::pb::MdcReceiverArg &arg) {
 
     for (int i = 0; i < arg.entries_size(); i++) {
         const auto &entry = arg.entries(i);
-
-//        std::cout << "Addr:" << entry.addr() << std::endl;
-//        std::cout << "Label:" << entry.label() << std::endl;
-//        std::cout << (*(pkt->head_data<uint64_t *>()) & 0x0000ffffffffffff) << std::endl;
 
         if (!entry.addr().length()) {
             return CommandFailure(EINVAL,
@@ -418,25 +409,6 @@ CommandResponse LabelLookup::CommandAdd(
         }
 
         int r = mdc_add_entry(&mdc_table_, mdc_addr_to_u64(addr), label);
-
-        uint64_t pkt_data = 2162346236755973638;
-        std::cout << "Added?" << r << std::endl;
-        std::cout << mdc_table_.count << std::endl;
-
-        std::cout << label << std::endl;
-        std::cout << mdc_addr_to_u64(addr) << std::endl;
-
-        mdc_label_t out_label;
-//        int ret = mdc_find(&mdc_table_,
-//                           mdc_addr_to_u64(addr),
-//                           &out_label);
-        int ret = mdc_find(&mdc_table_,
-                          pkt_data & 0x0000ffffffffffff,
-                          &out_label);
-        std::cout << "Found?" << ret << std::endl;
-        std::cout << "Found Label" << out_label << std::endl;
-        std::cout << std::hex << std::setw(2) << std::setfill('0') << out_label << " ";
-
         if (r == -EEXIST) {
             return CommandFailure(EEXIST, "MAC address '%s' already exist", str_addr);
         } else if (r == -ENOMEM) {
@@ -449,11 +421,11 @@ CommandResponse LabelLookup::CommandAdd(
     return CommandSuccess();
 }
 
-CommandResponse LabelLookup::CommandClear(const bess::pb::EmptyArg &) {
+CommandResponse MdcReceiver::CommandClear(const bess::pb::EmptyArg &) {
     return CommandSuccess();
 }
 
-void LabelLookup::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
+void MdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
 
     int cnt = batch->cnt();
 
@@ -461,30 +433,28 @@ void LabelLookup::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
         bess::Packet *pkt = batch->pkts()[i];
         Ethernet *eth = pkt->head_data<Ethernet *>();
 
-        if (eth->ether_type != be16_t(Mdc::kType)) {
+        if (eth->ether_type == be16_t(Mdc::kDataType)) {
+            mdc_label_t out_label = 0x0a0b0c;
+            int ret = mdc_find(&mdc_table_,
+                               *(pkt->head_data<uint64_t *>()) & 0x0000ffffffffffff,
+                               &out_label);
+            if (ret != 0) {
+                out_label = 0x0a0b0c;
+            }
+
+            be32_t *p = pkt->head_data<be32_t *>(sizeof(Ethernet));
+            *p = (be32_t(1) << 24) | be32_t(out_label);
+        } else if (eth->ether_type == be16_t(Mdc::kControlType)) {
+
+        } else {
             // non-MDC packets are dropped
             DropPacket(ctx, pkt);
             continue;
         }
-
-        // the lookup key
-//        Ethernet::Address eth_dst = eth->dst_addr;
-
-        mdc_label_t out_label = 0x0a0b0c;
-//        std::cout << "Pkt Data," << *(pkt->head_data<uint64_t *>()) << std::endl;
-        int ret = mdc_find(&mdc_table_,
-                           *(pkt->head_data<uint64_t *>()) & 0x0000ffffffffffff,
-                           &out_label);
-        if (ret != 0) {
-            out_label = 0x0a0b0c;
-        }
-
-        be32_t *p = pkt->head_data<be32_t *>(sizeof(Ethernet));
-        *p = (be32_t(1) << 24) | be32_t(out_label);
     }
 
     RunNextModule(ctx, batch);
 }
 
-ADD_MODULE(LabelLookup, "label_lookup",
-           "searches for the corresponding label in memory")
+ADD_MODULE(MdcReceiver, "mdc_receiver",
+           "processing MDC pkts")
