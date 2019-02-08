@@ -101,7 +101,7 @@ DPDK_BASE_CONFIG = '%s/%s_common_linuxapp' % (DEPS_DIR, DPDK_VER)
 DPDK_FINAL_CONFIG = '%s/%s_common_linuxapp_final' % (DEPS_DIR, DPDK_VER)
 
 extra_libs = set()
-cxx_flags = []
+cxx_flags = ['-fPIC']
 ld_flags = []
 plugins = []
 
