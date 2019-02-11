@@ -53,8 +53,9 @@ using bess::utils::Mdc;
 class MdcHealthCheck final : public Module {
 public:
   static const Commands cmds;
+//    static const gate_idx_t kNumIGates = 2;
 
-  MdcHealthCheck() : Module() {}
+  MdcHealthCheck() : Module(), emit_pkt_(true), gen_pkts_count_(0) {}
 
   CommandResponse Init(const sample::mdc_health_check::pb::MdcHealthCheckArg &arg);
   void DeInit();
@@ -66,7 +67,8 @@ public:
   CommandResponse CommandClear(const bess::pb::EmptyArg &arg);
 
 private:
-    bool last_checked_;
+    bool emit_pkt_;
+    uint64_t gen_pkts_count_;
 };
 
 #endif // BESS_MODULES_MDCHEALTHCHECK_H_

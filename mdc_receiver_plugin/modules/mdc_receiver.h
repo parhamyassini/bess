@@ -85,6 +85,7 @@ struct mdc_table {
 class MdcReceiver final : public Module {
 public:
   static const Commands cmds;
+  static const gate_idx_t kNumOGates = 2;
 
   MdcReceiver() : Module(), mdc_table_() {}
 

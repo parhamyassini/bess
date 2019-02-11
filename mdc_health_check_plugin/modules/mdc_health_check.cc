@@ -35,7 +35,7 @@ const Commands MdcHealthCheck::cmds = {
         {"add",   "MdcHealthCheckArg",
                               MODULE_CMD_FUNC(&MdcHealthCheck::CommandAdd), Command::THREAD_UNSAFE},
         {"clear", "EmptyArg", MODULE_CMD_FUNC(&MdcHealthCheck::CommandClear),
-                                                                         Command::THREAD_UNSAFE},
+                                                                            Command::THREAD_UNSAFE},
 };
 
 CommandResponse
@@ -62,16 +62,33 @@ void MdcHealthCheck::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
         bess::Packet *pkt = batch->pkts()[i];
         Ethernet *eth = pkt->head_data<Ethernet *>();
 
-        if (eth->ether_type != be16_t(Mdc::kControlType)) {
-
-        } else {
-            // non-MDC packets are dropped
+        if (eth->ether_type != be16_t(Mdc::kControlHealthType)) {
+            // non- Health check MDC packets are dropped
             DropPacket(ctx, pkt);
             continue;
         }
-    }
 
-    RunNextModule(ctx, batch);
+        gate_idx_t incoming_gate = ctx->current_igate;
+
+        if (incoming_gate == 0) {
+            // Pkts coming from generator
+            // We need to make sure the MDC Agent still sends pkts even if ToR had failed, in case the ToR comes back!
+            // "100" represents the rate at which the Agent resends the health-check pkts if ToR fails
+            // This value needs to be adaptive or configured
+            if (emit_pkt_ || gen_pkts_count_ == 100) {
+                EmitPacket(ctx, pkt, 0);
+                gen_pkts_count_ = 0;
+                emit_pkt_ = false;
+            }
+            gen_pkts_count_ += 1;
+        } else if (incoming_gate == 1) {
+            // Pkts coming as a reply from ToR
+            emit_pkt_ = true;
+            // TODO maybe need to keep track of other info
+        }
+        // drop pkt iff incoming gate == 1 OR (incoming gate == 0 AND emit_pkt_ == false)
+        DropPacket(ctx, pkt);
+    }
 }
 
 ADD_MODULE(MdcHealthCheck, "mdc_health_check",

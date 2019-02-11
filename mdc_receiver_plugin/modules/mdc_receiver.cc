@@ -441,11 +441,14 @@ void MdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
             if (ret != 0) {
                 out_label = 0x0a0b0c;
             }
-
             be32_t *p = pkt->head_data<be32_t *>(sizeof(Ethernet));
             *p = (be32_t(1) << 24) | be32_t(out_label);
-        } else if (eth->ether_type == be16_t(Mdc::kControlType)) {
-
+            EmitPacket(ctx, pkt, 0);
+        } else if (eth->ether_type == be16_t(Mdc::kControlStateType)) {
+            // TODO: update state
+            EmitPacket(ctx, pkt, 0);
+        } else if (eth->ether_type == be16_t(Mdc::kControlHealthType)) {
+            EmitPacket(ctx, pkt, 1);
         } else {
             // non-MDC packets are dropped
             DropPacket(ctx, pkt);
@@ -453,7 +456,7 @@ void MdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
         }
     }
 
-    RunNextModule(ctx, batch);
+//    RunNextModule(ctx, batch);
 }
 
 ADD_MODULE(MdcReceiver, "mdc_receiver",

@@ -42,7 +42,8 @@ namespace bess {
 
         struct [[gnu::packed]] Mdc {
             static const uint16_t kDataType = 0xdede;
-            static const uint16_t kControlType = 0xdedd;
+            static const uint16_t kControlStateType = 0xdedb;
+            static const uint16_t kControlHealthType = 0xdedc;
 
         };
 
