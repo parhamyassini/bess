@@ -75,7 +75,8 @@ merger_out = Merge()
 # receiving pkts
 mdc_pkt_gen_virt -> merger_virt
 Source() -> Rewrite(templates=[data_pkt_bytes]) -> merger_virt -> mdc_rec
-mdc_rec:0 -> Dump(interval=1) -> merger_out -> Sink()
+mdc_rec:0 -> merger_out -> Sink()
+# mdc_rec:0 -> Dump(interval=1) -> merger_out -> Sink()
 
 # control path
 mdc_pkt_gen_real -> 0:mdc_hc
