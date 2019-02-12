@@ -28,47 +28,78 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef BESS_MODULES_MDCHEALTHCHECK_H_
-#define BESS_MODULES_MDCHEALTHCHECK_H_
+#ifndef BESS_MODULES_LABELLOOKUP_H_
+#define BESS_MODULES_LABELLOOKUP_H_
 
 
 #include "module.h"
+#include "utils/common.h"
 #include "utils/bits.h"
 #include "utils/endian.h"
 #include "utils/ether.h"
+#include "utils/time.h"
 #include "../mdc_receiver_plugin/utils/mdc.h"
-#include "utils/exact_match_table.h"
 
-#include "pb/mdc_health_check_msg.pb.h"
+#include "pb/mdc_pkt_gen_msg.pb.h"
+
+#include <queue>
 
 
-using bess::utils::Error;
+//using bess::utils::Error;
 
 using bess::utils::be16_t;
 using bess::utils::be32_t;
 using bess::utils::Ethernet;
 using bess::utils::Mdc;
 
+#define MAX_TEMPLATE_SIZE 1536
 
-class MdcHealthCheck final : public Module {
+typedef uint64_t Event;
+typedef std::priority_queue<Event, std::vector<Event>, std::greater<Event>>
+        EventQueue;
+
+
+class MdcPktGen final : public Module {
 public:
-  static const Commands cmds;
-  static const gate_idx_t kNumIGates = 2;
+    static const Commands cmds;
+    static const gate_idx_t kNumIGates = 0;
+    static const gate_idx_t kNumOGates = 1;
 
-  MdcHealthCheck() : Module(), emit_pkt_(true), gen_pkts_count_(0) {}
+    MdcPktGen()
+            : Module(),
+              events_(),
+              tmpl_(),
+              template_size_(),
+              total_pps_(),
+              burst_() {
+        is_task_ = true;
+    }
 
-  CommandResponse Init(const sample::mdc_health_check::pb::MdcHealthCheckArg &arg);
-  void DeInit();
+    CommandResponse Init(const sample::mdc_pkt_gen::pb::MdcPktGenArg &arg);
 
-  void ProcessBatch(Context *ctx, bess::PacketBatch *batch) override;
+    void DeInit() override;
 
-  CommandResponse
-  CommandAdd(const sample::mdc_health_check::pb::MdcHealthCheckArg &arg);
-  CommandResponse CommandClear(const bess::pb::EmptyArg &arg);
+    struct task_result RunTask(Context *ctx, bess::PacketBatch *batch,
+                               void *arg) override;
+
+    CommandResponse ProcessUpdatableArgs(const sample::mdc_pkt_gen::pb::MdcPktGenArg &arg);
+
+    CommandResponse CommandUpdate(const sample::mdc_pkt_gen::pb::MdcPktGenArg &arg);
+
+    bess::Packet *FillMdcPacket();
+    void GeneratePackets(Context *ctx, bess::PacketBatch *batch);
 
 private:
-    bool emit_pkt_;
-    uint64_t gen_pkts_count_;
+    // Priority queue of future events
+    EventQueue events_;
+
+    unsigned char tmpl_[MAX_TEMPLATE_SIZE] = {};
+    int template_size_;
+
+    /* load parameters */
+    double total_pps_;
+    int burst_;
+
 };
 
-#endif // BESS_MODULES_MDCHEALTHCHECK_H_
+#endif // BESS_MODULES_LABELLOOKUP_H_

@@ -35,18 +35,42 @@ class MDCData(scapy.Packet):
     name = 'MulticastDataCenterData '
     fields_desc=[scapy.XByteField('mode', 0), scapy.X3BytesField('label' , 0)]
 
+class MDCHealthCheck(scapy.Packet):
+    name = 'MulticastDataCenterHealth '
+    fields_desc=[scapy.XByteField('dummy', 0)]
 
-eth = scapy.Ether(src='02:1e:67:9f:4d:ae', dst='06:16:3e:1b:72:32', type=0xdede)
-mdc_data = MDCData(mode=0x0, label=0x0)
-ip = scapy.IP(src='192.168.1.1', dst='10.0.0.1')
-udp = scapy.UDP(sport=10001, dport=10002)
-payload = 'helloworld'
-pkt = eth/mdc_data/ip/udp/payload
-pkt_bytes = bytes(pkt)
+# Data Pkt
+data_eth = scapy.Ether(src='02:1e:67:9f:4d:ae', dst='06:16:3e:1b:72:32', type=0xdeda)
+data_mdc = MDCData(mode=0x0, label=0x0)
+data_ip = scapy.IP(src='192.168.1.1', dst='10.0.0.1')
+data_udp = scapy.UDP(sport=10001, dport=10002)
+data_payload = 'helloworld'
+data_pkt = data_eth/data_mdc/data_ip/data_udp/data_payload
+data_pkt_bytes = bytes(data_pkt)
 
-pkt.show()
+# Health Check Control Pkt
+hc_eth = scapy.Ether(src='02:1e:67:9f:4d:ae', dst='06:16:3e:1b:72:32', type=0xdedc)
+hc_mdc = MDCHealthCheck(dummy=0x0)
+hc_payload = 'hello'
+hc_pkt = hc_eth/hc_mdc/hc_payload
+hc_pkt_bytes = bytes(hc_pkt)
 
 mdc_rec = MdcReceiver()
 mdc_rec.add(entries=[{'addr': '06:16:3e:1b:72:32', 'label': 0xCCCCCC}])
 
-Source() -> Rewrite(templates=[pkt_bytes]) -> mdc_rec -> Dump(interval=1) -> Sink()
+mdc_pkt_gen = MdcPktGen(template=hc_pkt_bytes, pps=1e2)
+
+mdc_hc = MdcHealthCheck()
+
+
+# receiving pkts
+Source() -> Rewrite(templates=[data_pkt_bytes]) -> mdc_rec
+mdc_rec:0 -> Dump(interval=1) -> Sink()
+
+# control path
+mdc_pkt_gen -> 0:mdc_hc
+mdc_rec:1 -> 1:mdc_hc -> Sink()
+
+# test
+# mdc_pkt_gen -> Dump(interval=1) -> Sink()
+

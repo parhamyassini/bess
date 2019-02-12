@@ -1,5 +1,4 @@
-// Copyright (c) 2016-2017, Nefeli Networks, Inc.
-// Copyright (c) 2017, Cloudigo.
+// Copyright (c) 2017, The Regents of the University of California.
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -28,26 +27,25 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef BESS_UTILS_MDC_H_
-#define BESS_UTILS_MDC_H_
+syntax = "proto3";
 
-#include <cstdint>
-#include <string>
-#include <type_traits>
+package sample.mdc_pkt_gen.pb;
 
-#include "endian.h"
+/**
+ * The function `clear()` for SequentialUpdate takes no parameters and clears all
+ * state in the module.
+ */
+message MdcPktGenCommandClearArg {
+}
 
-namespace bess {
-    namespace utils {
-
-        struct [[gnu::packed]] Mdc {
-            static const uint16_t kDataType = 0xdeda;
-            static const uint16_t kControlStateType = 0xdedb;
-            static const uint16_t kControlHealthType = 0xdedc;
-
-        };
-
-    }  // namespace utils
-}  // namespace bess
-
-#endif  // BESS_UTILS_MDC_H_
+/**
+ * The SequentialUpdate module rewrites a specified field (`offset` and `size`) in a packet
+ * with a sequentially increased value from a specified min to max values.
+ *
+ * __Input Gates__: 1
+ * __Output Gates__: 1
+ */
+message MdcPktGenArg {
+  bytes template = 1; /// The packet "template". All data packets are derived from this template and contain the same payload.
+  double pps = 2; /// The total number of packets per second to generate.
+}

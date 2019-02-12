@@ -432,7 +432,7 @@ void MdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
     for (int i = 0; i < cnt; i++) {
         bess::Packet *pkt = batch->pkts()[i];
         Ethernet *eth = pkt->head_data<Ethernet *>();
-
+//        std::cout << (eth->ether_type == be16_t(Mdc::kDataType)) << std::endl;
         if (eth->ether_type == be16_t(Mdc::kDataType)) {
             mdc_label_t out_label = 0x0a0b0c;
             int ret = mdc_find(&mdc_table_,
