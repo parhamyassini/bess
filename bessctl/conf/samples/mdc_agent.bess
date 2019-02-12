@@ -60,15 +60,23 @@ hc_pkt_bytes = bytes(hc_pkt)
 mdc_rec = MdcReceiver()
 mdc_rec.add(entries=[{'addr': '06:16:3e:1b:72:32', 'label': 0xCCCCCC}])
 
-mdc_pkt_gen = MdcPktGen(template=hc_pkt_bytes, pps=1e2)
+mdc_pkt_gen_real = MdcPktGen(template=hc_pkt_bytes, pps=1e2)
+
+# used to simulate a response from ToR
+mdc_pkt_gen_virt = MdcPktGen(template=hc_pkt_bytes, pps=1e2)
 
 mdc_hc = MdcHealthCheck()
 
+merger_virt = Merge()
+
+merger_out = Merge()
+
 
 # receiving pkts
-Source() -> Rewrite(templates=[data_pkt_bytes]) -> mdc_rec
-mdc_rec:0 -> Dump(interval=1) -> Sink()
+mdc_pkt_gen_virt -> merger_virt
+Source() -> Rewrite(templates=[data_pkt_bytes]) -> merger_virt -> mdc_rec
+mdc_rec:0 -> Dump(interval=1) -> merger_out -> Sink()
 
 # control path
-mdc_pkt_gen -> 0:mdc_hc
-mdc_rec:1 -> 1:mdc_hc -> Sink()
+mdc_pkt_gen_real -> 0:mdc_hc
+mdc_rec:1 -> 1:mdc_hc -> merger_out
