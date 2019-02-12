@@ -87,7 +87,9 @@ public:
   static const Commands cmds;
   static const gate_idx_t kNumOGates = 2;
 
-  MdcReceiver() : Module(), mdc_table_() {}
+  MdcReceiver() : Module(), mdc_table_() {
+      max_allowed_workers_ = Worker::kMaxWorkers;
+  }
 
   CommandResponse Init(const sample::mdc_receiver::pb::MdcReceiverArg &arg);
   void DeInit();

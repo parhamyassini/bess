@@ -31,6 +31,11 @@
 import scapy.all as scapy
 
 
+bess.add_worker(wid=0, core=0)
+bess.add_worker(wid=1, core=1)
+bess.add_worker(wid=2, core=2)
+# bess.add_worker(wid=3, core=3)
+
 class MDCData(scapy.Packet):
     name = 'MulticastDataCenterData '
     fields_desc=[scapy.XByteField('mode', 0), scapy.X3BytesField('label' , 0)]
@@ -40,7 +45,7 @@ class MDCHealthCheck(scapy.Packet):
     fields_desc=[scapy.XByteField('dummy', 0)]
 
 # Data Pkt
-DATA_PKT_SIZE = 256
+DATA_PKT_SIZE = 1024
 CONST_DATA_SIZE = 46
 data_eth = scapy.Ether(src='02:1e:67:9f:4d:ae', dst='06:16:3e:1b:72:32', type=0xdeda)
 data_mdc = MDCData(mode=0x0, label=0x0)
@@ -67,14 +72,17 @@ mdc_pkt_gen_virt = MdcPktGen(template=hc_pkt_bytes, pps=1e2)
 
 mdc_hc = MdcHealthCheck()
 
-merger_virt = Merge()
-
+merger_inc = Merge()
 merger_out = Merge()
 
+merger_virt = Merge()
+
+for i in range(3):
+    Source() -> merger_inc
 
 # receiving pkts
 mdc_pkt_gen_virt -> merger_virt
-Source() -> Rewrite(templates=[data_pkt_bytes]) -> merger_virt -> mdc_rec
+merger_inc -> Rewrite(templates=[data_pkt_bytes]) -> merger_virt -> mdc_rec
 mdc_rec:0 -> merger_out -> Sink()
 # mdc_rec:0 -> Dump(interval=1) -> merger_out -> Sink()
 

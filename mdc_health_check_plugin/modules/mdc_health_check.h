@@ -55,7 +55,9 @@ public:
   static const Commands cmds;
   static const gate_idx_t kNumIGates = 2;
 
-  MdcHealthCheck() : Module(), emit_pkt_(true), gen_pkts_count_(0) {}
+  MdcHealthCheck() : Module(), emit_pkt_(true), gen_pkts_count_(0) {
+    max_allowed_workers_ = Worker::kMaxWorkers;
+  }
 
   CommandResponse Init(const sample::mdc_health_check::pb::MdcHealthCheckArg &arg);
   void DeInit();
