@@ -31,10 +31,16 @@
 import scapy.all as scapy
 
 
-bess.add_worker(wid=0, core=0)
-bess.add_worker(wid=1, core=1)
-bess.add_worker(wid=2, core=2)
+# bess.add_worker(wid=0, core=0)
+# bess.add_worker(wid=1, core=1)
+# bess.add_worker(wid=2, core=2)
 # bess.add_worker(wid=3, core=3)
+
+num_cores = int($BESS_CORES!'1')
+
+for i in range(num_cores):
+    bess.add_worker(wid=i, core=i)
+
 
 class MDCData(scapy.Packet):
     name = 'MulticastDataCenterData '
@@ -77,7 +83,7 @@ merger_out = Merge()
 
 merger_virt = Merge()
 
-for i in range(3):
+for i in range(num_cores):
     Source() -> merger_inc
 
 # receiving pkts
