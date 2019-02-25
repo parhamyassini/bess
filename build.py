@@ -94,6 +94,10 @@ DPDK_TARGET = 'x86_64-native-linuxapp-gcc'
 
 kernel_release = cmd('uname -r', quiet=True).strip()
 
+
+CC = '/rcg/software/Linux/Ubuntu/16.04/amd64/COMPILER/GNU/7.2.0/bin/gcc'
+CXX = '/rcg/software/Linux/Ubuntu/16.04/amd64/COMPILER/GNU/7.2.0/bin/g++'
+
 DPDK_DIR = '%s/%s' % (DEPS_DIR, DPDK_VER)
 DPDK_CFLAGS = '"-g -w -fPIC"'
 DPDK_ORIG_CONFIG = '%s/config/common_linuxapp' % DPDK_DIR
@@ -158,8 +162,8 @@ def check_c_lib(lib):
         with open(test_c_file, 'w') as fp:
             fp.write(textwrap.dedent(src))
 
-        return cmd_success('gcc %s -l%s %s %s -o %s' %
-                           (test_c_file, lib, ' '.join(cxx_flags),
+        return cmd_success('%s %s -l%s %s %s -o %s' %
+                           (CC, test_c_file, lib, ' '.join(cxx_flags),
                             ' '.join(ld_flags), test_e_file))
     finally:
         cmd('rm -f %s %s' % (test_c_file, test_e_file), quiet=True)
@@ -173,11 +177,11 @@ def required(header_file, lib_name, compiler):
 
 
 def check_essential():
-    if not cmd_success('gcc -v'):
+    if not cmd_success('%s -v' % CC):
         print('Error - "gcc" is not available', file=sys.stderr)
         sys.exit(1)
 
-    if not cmd_success('g++ -v'):
+    if not cmd_success('%s -v' % CXX):
         print('Error - "g++" is not available', file=sys.stderr)
         sys.exit(1)
 
@@ -185,14 +189,14 @@ def check_essential():
         print('Error - "make" is not available', file=sys.stderr)
         sys.exit(1)
 
-    required('numa.h', 'libnuma-dev', 'gcc')
-    required('pcap/pcap.h', 'libpcap-dev', 'gcc')
-    required('zlib.h', 'zlib1g-dev', 'gcc')
-    required('glog/logging.h', 'libgoogle-glog-dev', 'g++')
-    required('gflags/gflags.h', 'libgflags-dev', 'g++')
-    required('gtest/gtest.h', 'libgtest-dev', 'g++')
+    required('numa.h', 'libnuma-dev', CC)
+    required('pcap/pcap.h', 'libpcap-dev', CC)
+    required('zlib.h', 'zlib1g-dev', CC)
+    required('glog/logging.h', 'libgoogle-glog-dev', CXX)
+    required('gflags/gflags.h', 'libgflags-dev', CXX)
+    required('gtest/gtest.h', 'libgtest-dev', CXX)
     required('benchmark/benchmark.h', 'https://github.com/google/benchmark',
-             'g++')
+             CXX)
 
 
 def set_config(filename, config, new_value):
@@ -221,7 +225,7 @@ def check_kernel_headers():
 
 
 def check_bnx():
-    if check_header('zlib.h', 'gcc') and check_c_lib('z'):
+    if check_header('zlib.h', CC) and check_c_lib('z'):
         extra_libs.add('z')
     else:
         print(' - "zlib1g-dev" is not available. Disabling BNX2X PMD...')
@@ -229,7 +233,7 @@ def check_bnx():
 
 
 def check_mlx():
-    if check_header('infiniband/ib.h', 'gcc') and check_c_lib('mlx4') and \
+    if check_header('infiniband/ib.h', CC) and check_c_lib('mlx4') and \
             check_c_lib('mlx5'):
         extra_libs.add('ibverbs')
         extra_libs.add('mlx4')
@@ -237,7 +241,7 @@ def check_mlx():
     else:
         print(' - "Mellanox OFED" is not available. '
               'Disabling MLX4 and MLX5 PMDs...')
-        if check_header('infiniband/verbs.h', 'gcc'):
+        if check_header('infiniband/verbs.h', CC):
             print('   NOTE: "libibverbs-dev" does exist, but it does not '
                   'work with MLX PMDs. Instead download OFED from '
                   'http://www.melloanox.com')
