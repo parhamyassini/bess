@@ -94,9 +94,10 @@ DPDK_TARGET = 'x86_64-native-linuxapp-gcc'
 
 kernel_release = cmd('uname -r', quiet=True).strip()
 
-
-CC = '/rcg/software/Linux/Ubuntu/16.04/amd64/COMPILER/GNU/7.2.0/bin/gcc'
-CXX = '/rcg/software/Linux/Ubuntu/16.04/amd64/COMPILER/GNU/7.2.0/bin/g++'
+CC_PREFIX= '' # '/rcg/software/Linux/Ubuntu/16.04/amd64/COMPILER/GNU/7.2.0/bin/'
+CCX_PREFIX= '' # '/rcg/software/Linux/Ubuntu/16.04/amd64/COMPILER/GNU/7.2.0/bin/'
+CC = '%sgcc' % CC_PREFIX
+CXX = '%sg++' % CCX_PREFIX
 
 DPDK_DIR = '%s/%s' % (DEPS_DIR, DPDK_VER)
 DPDK_CFLAGS = '"-g -w -fPIC"'

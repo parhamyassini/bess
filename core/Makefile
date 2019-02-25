@@ -32,7 +32,8 @@
 MAKEFLAGS += --no-builtin-rules
 .SUFFIXES: ;
 
-CXX = /rcg/software/Linux/Ubuntu/16.04/amd64/COMPILER/GNU/7.2.0/bin/g++
+CXX_PREFIX= #/rcg/software/Linux/Ubuntu/16.04/amd64/COMPILER/GNU/7.2.0/bin/
+CXX = ${CXX_PREFIX}g++
 PROTOC ?= protoc
 PKG_CONFIG ?= pkg-config
 
