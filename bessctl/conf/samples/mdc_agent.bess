@@ -51,15 +51,21 @@ class MDCHealthCheck(scapy.Packet):
     fields_desc=[scapy.XByteField('dummy', 0)]
 
 # Data Pkt
-DATA_PKT_SIZE = 1024
+DATA_PKT_SIZE = 64
 CONST_DATA_SIZE = 46
+
 data_eth = scapy.Ether(src='02:1e:67:9f:4d:ae', dst='06:16:3e:1b:72:32', type=0xdeda)
-data_mdc = MDCData(mode=0x0, label=0x0)
+labeled_data_mdc = MDCData(mode=0xff, label=0x111111)
+unlabeled_data_mdc = MDCData(mode=0x0, label=0x0)
 data_ip = scapy.IP(src='192.168.1.1', dst='10.0.0.1')
 data_udp = scapy.UDP(sport=10001, dport=10002)
-data_payload = b"\0" * (DATA_PKT_SIZE-CONST_DATA_SIZE) # 'helloworld'
-data_pkt = data_eth/data_mdc/data_ip/data_udp/data_payload
-data_pkt_bytes = bytes(data_pkt)
+data_payload = b"\0" * (DATA_PKT_SIZE-CONST_DATA_SIZE)
+
+unlabeled_data_pkt = data_eth/unlabeled_data_mdc/data_ip/data_udp/data_payload
+unlabeled_data_pkt_bytes = bytes(unlabeled_data_pkt)
+
+# labeled_data_pkt = data_eth/labeled_data_mdc/data_ip/data_udp/data_payload
+# labeled_data_pkt_bytes = bytes(labeled_data_pkt)
 
 # Health Check Control Pkt
 hc_eth = scapy.Ether(src='02:1e:67:9f:4d:ae', dst='06:16:3e:1b:72:32', type=0xdedc)
@@ -69,7 +75,7 @@ hc_pkt = hc_eth/hc_mdc/hc_payload
 hc_pkt_bytes = bytes(hc_pkt)
 
 mdc_rec = MdcReceiver()
-mdc_rec.add(entries=[{'addr': '06:16:3e:1b:72:32', 'label': 0xCCCCCC}])
+mdc_rec.add(entries=[{'addr': '06:16:3e:1b:72:32', 'label': 0x010101}])
 
 mdc_pkt_gen_real = MdcPktGen(template=hc_pkt_bytes, pps=1e2)
 
@@ -83,15 +89,20 @@ merger_out = Merge()
 
 merger_virt = Merge()
 
-for i in range(num_cores):
-    Source() -> merger_inc
+
+num_unlabeled_data_srcs = max(1, num_cores-1)
+
+for i in range(num_unlabeled_data_srcs):
+    Source() -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> merger_inc
+
+# Source() -> Rewrite(templates=[labeled_data_pkt_bytes]) -> merger_inc
 
 # receiving pkts
 mdc_pkt_gen_virt -> merger_virt
-merger_inc -> Rewrite(templates=[data_pkt_bytes]) -> merger_virt -> mdc_rec
-mdc_rec:0 -> merger_out -> Sink()
-# mdc_rec:0 -> Dump(interval=1) -> merger_out -> Sink()
+merger_inc -> merger_virt -> mdc_rec
+mdc_rec:0 -> Dump(interval=1) -> merger_out -> Sink()
+mdc_rec:1 -> Dump(interval=1) -> Sink()
 
 # control path
 mdc_pkt_gen_real -> 0:mdc_hc
-mdc_rec:1 -> 1:mdc_hc -> merger_out
+mdc_rec:2 -> 1:mdc_hc -> merger_out

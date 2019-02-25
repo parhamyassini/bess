@@ -85,7 +85,7 @@ struct mdc_table {
 class MdcReceiver final : public Module {
 public:
   static const Commands cmds;
-  static const gate_idx_t kNumOGates = 2;
+  static const gate_idx_t kNumOGates = 3;
 
   MdcReceiver() : Module(), mdc_table_() {
       max_allowed_workers_ = Worker::kMaxWorkers;

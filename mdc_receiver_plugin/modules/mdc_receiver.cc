@@ -432,23 +432,31 @@ void MdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
     for (int i = 0; i < cnt; i++) {
         bess::Packet *pkt = batch->pkts()[i];
         Ethernet *eth = pkt->head_data<Ethernet *>();
-//        std::cout << (eth->ether_type == be16_t(Mdc::kDataType)) << std::endl;
         if (eth->ether_type == be16_t(Mdc::kDataType)) {
-            mdc_label_t out_label = 0x0a0b0c;
-            int ret = mdc_find(&mdc_table_,
-                               *(pkt->head_data<uint64_t *>()) & 0x0000ffffffffffff,
-                               &out_label);
-            if (ret != 0) {
-                out_label = 0x0a0b0c;
-            }
             be32_t *p = pkt->head_data<be32_t *>(sizeof(Ethernet));
-            *p = (be32_t(1) << 24) | be32_t(out_label);
-            EmitPacket(ctx, pkt, 0);
+            uint8_t mode = p->raw_value() & 0x000000ff;
+//            std::cout << std::hex << static_cast<int>(mode) << std::endl;
+
+            if (mode == 0x00) {
+                // if mode is 0x00, the data pkt needs to be labeled
+                mdc_label_t out_label = 0x0a0b0c;
+                int ret = mdc_find(&mdc_table_,
+                                   *(pkt->head_data<uint64_t *>()) & 0x0000ffffffffffff,
+                                   &out_label);
+                if (ret != 0) {
+                    out_label = 0x0a0b0c;
+                }
+                *p = (be32_t(0xff) << 24) | be32_t(out_label);
+                EmitPacket(ctx, pkt, 0);
+            } else {
+                // if mode is 0xff, the data pkt is already labeled, emit it to the receiving app.
+                EmitPacket(ctx, pkt, 1);
+            }
         } else if (eth->ether_type == be16_t(Mdc::kControlStateType)) {
             // TODO: update state
             EmitPacket(ctx, pkt, 0);
         } else if (eth->ether_type == be16_t(Mdc::kControlHealthType)) {
-            EmitPacket(ctx, pkt, 1);
+            EmitPacket(ctx, pkt, 2);
         } else {
             // non-MDC packets are dropped
             DropPacket(ctx, pkt);
