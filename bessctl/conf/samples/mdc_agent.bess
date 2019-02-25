@@ -30,11 +30,10 @@
 
 import scapy.all as scapy
 
+SIMULATION = False
 
-# bess.add_worker(wid=0, core=0)
-# bess.add_worker(wid=1, core=1)
-# bess.add_worker(wid=2, core=2)
-# bess.add_worker(wid=3, core=3)
+# used only when SIMULATION is True
+GENERATE_TRAFFIC = True
 
 num_cores = int($BESS_CORES!'1')
 
@@ -46,12 +45,13 @@ class MDCData(scapy.Packet):
     name = 'MulticastDataCenterData '
     fields_desc=[scapy.XByteField('mode', 0), scapy.X3BytesField('label' , 0)]
 
+
 class MDCHealthCheck(scapy.Packet):
     name = 'MulticastDataCenterHealth '
     fields_desc=[scapy.XByteField('dummy', 0)]
 
 # Data Pkt
-DATA_PKT_SIZE = 64
+DATA_PKT_SIZE = 1024
 CONST_DATA_SIZE = 46
 
 data_eth = scapy.Ether(src='02:1e:67:9f:4d:ae', dst='06:16:3e:1b:72:32', type=0xdeda)
@@ -78,31 +78,66 @@ mdc_rec = MdcReceiver()
 mdc_rec.add(entries=[{'addr': '06:16:3e:1b:72:32', 'label': 0x010101}])
 
 mdc_pkt_gen_real = MdcPktGen(template=hc_pkt_bytes, pps=1e2)
-
-# used to simulate a response from ToR
-mdc_pkt_gen_virt = MdcPktGen(template=hc_pkt_bytes, pps=1e2)
-
 mdc_hc = MdcHealthCheck()
 
 merger_inc = Merge()
 merger_out = Merge()
 
-merger_virt = Merge()
+if SIMULATION:
+    # used to simulate a response from ToR
+    mdc_pkt_gen_virt = MdcPktGen(template=hc_pkt_bytes, pps=1e2)
 
+    merger_virt = Merge()
 
-num_unlabeled_data_srcs = max(1, num_cores-1)
+    num_unlabeled_data_srcs = max(1, num_cores-1)
 
-for i in range(num_unlabeled_data_srcs):
-    Source() -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> merger_inc
+    for i in range(num_unlabeled_data_srcs):
+        Source() -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> merger_inc
 
-# Source() -> Rewrite(templates=[labeled_data_pkt_bytes]) -> merger_inc
+    Source() -> Rewrite(templates=[labeled_data_pkt_bytes]) -> merger_inc
 
-# receiving pkts
-mdc_pkt_gen_virt -> merger_virt
-merger_inc -> merger_virt -> mdc_rec
-mdc_rec:0 -> Dump(interval=1) -> merger_out -> Sink()
-mdc_rec:1 -> Dump(interval=1) -> Sink()
+    # receiving pkts
+    mdc_pkt_gen_virt -> merger_virt
+    merger_inc -> merger_virt -> mdc_rec
+    mdc_rec:0 -> Dump(interval=1) -> merger_out -> Sink()
+    mdc_rec:1 -> Dump(interval=1) -> Sink()
 
-# control path
-mdc_pkt_gen_real -> 0:mdc_hc
-mdc_rec:2 -> 1:mdc_hc -> merger_out
+    # control path
+    mdc_pkt_gen_real -> 0:mdc_hc
+    mdc_rec:2 -> 1:mdc_hc -> merger_out
+else:
+    port0::PMDPort(port_id=0, num_inc_q=1, num_out_q=1)
+    port1::PMDPort(port_id=1, num_inc_q=1, num_out_q=1)
+
+    port0_inc0::QueueInc(port=port0, qid=0)
+    port1_inc0::QueueInc(port=port1, qid=0)
+
+    port0_out0::QueueOut(port=port0, qid=0)
+    port1_out0::QueueOut(port=port1, qid=0)
+
+    # merges pkts from all incoming ports, and sends them to mDC Receiver
+    port0_inc0 -> merger_inc
+    port1_inc0 -> merger_inc
+    merger_inc -> mdc_rec
+
+    # unlabeled data pkts and update-state ctrl pkts
+    mdc_rec:0  -> merger_out
+    # labeled data
+    mdc_rec:1  -> Sink()
+
+    # health ctrl pkts
+    mdc_pkt_gen_real -> 0:mdc_hc
+    mdc_rec:2 -> 1:mdc_hc -> merger_out
+
+    # Sends all outgoing pkts to port0
+    merger_out -> port0_out0
+
+    if GENERATE_TRAFFIC:
+        bess.add_tc('tgen', policy='rate_limit', resource='packet', limit={'packet': 1000000})
+
+        # creates a source, and limits its pkt rate
+        tgen_src::Source()
+        tgen_src.attach_task('tgen')
+
+        # sends generated traffic on port1
+        tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> port1_out0
