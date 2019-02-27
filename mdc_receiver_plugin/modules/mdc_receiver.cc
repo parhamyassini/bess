@@ -433,7 +433,6 @@ CommandResponse MdcReceiver::CommandClear(const bess::pb::EmptyArg &) {
 }
 
 void MdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
-
     int cnt = batch->cnt();
 
     for (int i = 0; i < cnt; i++) {
@@ -447,7 +446,7 @@ void MdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
 //            std::cout << std::hex << static_cast<int>(mode) << std::endl;
 
             if (mode == 0x00) {
-                // if mode is 0x00, the data pkt needs to be labeled
+                // If mode is 0x00, the data pkt needs to be labeled
                 mdc_label_t out_label = 0x0a0b0c;
                 int ret = mdc_find(&mdc_table_,
                                    *(pkt->head_data<uint64_t *>()) & 0x0000ffffffffffff,
@@ -455,19 +454,18 @@ void MdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
                 if (ret != 0) {
                     out_label = 0x0a0b0c;
                 }
+
+                // If the Agent host has a receiver, copy the pkt and send it to Gate 1.
                 if((agent_id_ & out_label) == agent_id_) {
                     bess::Packet *newpkt = bess::Packet::copy(pkt);
                     if (newpkt) {
                         EmitPacket(ctx, newpkt, 1);
                     }
                 }
+                // Label the pkt, make sure to remove the agent ID label from the final label
                 *p = (be32_t(0xff) << 24) | be32_t(out_label & ~agent_id_);
                 EmitPacket(ctx, pkt, 0);
             }
-//            else {
-//                // if mode is 0xff, the data pkt is already labeled, emit it to the receiving app.
-//                EmitPacket(ctx, pkt, 1);
-//            }
         } else if (eth->ether_type == be16_t(Mdc::kControlStateType)) {
             // TODO: update state
             EmitPacket(ctx, pkt, 0);
@@ -479,8 +477,6 @@ void MdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
             continue;
         }
     }
-
-//    RunNextModule(ctx, batch);
 }
 
 ADD_MODULE(MdcReceiver, "mdc_receiver",

@@ -122,7 +122,6 @@ bess::Packet *MdcPktGen::FillMdcPacket() {
 
 void MdcPktGen::GeneratePackets(Context *ctx, bess::PacketBatch *batch) {
     uint64_t now = ctx->current_ns;
-
     batch->clear();
     const int burst = ACCESS_ONCE(burst_);
 
@@ -134,11 +133,9 @@ void MdcPktGen::GeneratePackets(Context *ctx, bess::PacketBatch *batch) {
         events_.pop();
 
         bess::Packet *pkt = FillMdcPacket();
-
         if (pkt) {
             batch->add(pkt);
         }
-
         events_.emplace(t + static_cast<uint64_t>(1e9 / total_pps_));
     }
 }
@@ -159,7 +156,6 @@ struct task_result MdcPktGen::RunTask(Context *ctx, bess::PacketBatch *batch,
     return {.block = (cnt == 0),
             .packets = cnt,
             .bits = ((template_size_ + pkt_overhead) * cnt) * 8};
-
 }
 
 ADD_MODULE(MdcPktGen, "mdc_pkt_gen",

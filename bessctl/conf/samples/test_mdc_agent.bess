@@ -30,119 +30,95 @@
 
 import scapy.all as scapy
 
-SIMPLE_TEST = False
 
-num_cores = int($BESS_CORES!'1')
+CONST_DATA_SIZE = 46
 
+num_cores = int($BESS_CORES!'10')
+data_pkt_size = int($BESS_DATA_PKT_SIZE!'1024')
 
+assert 64 <= data_pkt_size <= 1024, 'Data pkts needs to be in the range [64, 1024] in bytes'
+
+# Data pkt
 class MDCData(scapy.Packet):
     name = 'MulticastDataCenterData '
     fields_desc=[scapy.XByteField('mode', 0), scapy.X3BytesField('label' , 0)]
 
-
+# Health pkt (a ctrl pkt)
 class MDCHealthCheck(scapy.Packet):
     name = 'MulticastDataCenterHealth '
     fields_desc=[scapy.XByteField('dummy0', 0), scapy.X3BytesField('dummy1' , 0)]
 
-# Data Pkt
-DATA_PKT_SIZE = 1024
-CONST_DATA_SIZE = 46
-
+# Data pkt template
 data_eth = scapy.Ether(src='02:1e:67:9f:4d:ae', dst='06:16:3e:1b:72:32', type=0xdeda)
 unlabeled_data_mdc = MDCData(mode=0x0, label=0x0)
 data_ip = scapy.IP(src='192.168.1.1', dst='10.0.0.1')
 data_udp = scapy.UDP(sport=10001, dport=10002)
-data_payload = b"\0" * (DATA_PKT_SIZE-CONST_DATA_SIZE)
+data_payload = b"\0" * (data_pkt_size-CONST_DATA_SIZE)
 unlabeled_data_pkt = data_eth/unlabeled_data_mdc/data_ip/data_udp/data_payload
 unlabeled_data_pkt_bytes = bytes(unlabeled_data_pkt)
 
-# Health Check Control Pkt
+# Health check pkt template
 hc_eth = scapy.Ether(src='02:1e:67:9f:4d:ae', dst='06:16:3e:1b:72:32', type=0xdedc)
 hc_mdc = MDCHealthCheck(dummy0=0xff, dummy1=0x000000)
 hc_payload = 'hello'
 hc_pkt = hc_eth/hc_mdc/hc_payload
 hc_pkt_bytes = bytes(hc_pkt)
 
+# If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
+# TODO: this needs to depend on the CPU layout and where the NIC is.
+start_core = 10
+for i in range(num_cores):
+    bess.add_worker(wid=i, core=i+start_core)
+
+# Define Ports and Queues
+port0::PMDPort(port_id=0, num_inc_q=4, num_out_q=4)
+port1::PMDPort(port_id=1, num_inc_q=4, num_out_q=4)
+
+port0_inc0::QueueInc(port=port0, qid=0)
+port1_inc0::QueueInc(port=port1, qid=0)
+
+port0_out0::QueueOut(port=port0, qid=0)
+port0_out1::QueueOut(port=port0, qid=2)
+port1_out0::QueueOut(port=port1, qid=0)
+
+
+# Creates mDC modules: a receiver, a control pkt generator and Health check
 mdc_rec = MdcReceiver(agent_id=0x010101)
-mdc_rec.add(entries=[{'addr': '06:16:3e:1b:72:32', 'label': 0x414141}])
+mdc_pkt_gen = MdcPktGen(template=hc_pkt_bytes, pps=1e2)
+mdc_hc = MdcHealthCheck()
 
+# Adds (session address, label) tuples to the MdcReceiver module
+mdc_rec.add(entries=[{'addr': '06:16:3e:1b:72:32', 'label': 0x404040}])
 
-if SIMPLE_TEST:
-    mdc_pkt_gen_real = MdcPktGen(template=hc_pkt_bytes, pps=1e2)
-    mdc_hc = MdcHealthCheck()
+# Merges pkts from all incoming ports, and sends them to mDC Receiver
+port0_inc0 -> mdc_rec
 
-    for i in range(num_cores):
-        bess.add_worker(wid=i, core=i)
+# Processed pkts: unlabeled pkts and update-state ctrl pkts
+mdc_rec:0  -> port0_out0
 
-    port0::PMDPort(port_id=0, num_inc_q=2, num_out_q=1)
-    port1::PMDPort(port_id=1, num_inc_q=1, num_out_q=1)
+# If the Agent host has a receiver, sends these pkts to Sink()
+mdc_rec:1  -> Sink()
 
-    port0_inc0::QueueInc(port=port0, qid=0)
-    port1_out0::QueueOut(port=port1, qid=0)
+# Ignore incoming pkts on Port 1
+port1_inc0 -> Sink()
 
-    # merges pkts from all incoming ports, and sends them to mDC Receiver
-    port0_inc0 -> Sink()
+# Health check pkts
+q::Queue()
+mdc_pkt_gen -> 0:mdc_hc
+mdc_rec:2 -> q -> 1:mdc_hc
+mdc_hc -> port0_out1
+q.attach_task(wid=9)
+mdc_pkt_gen.attach_task(wid=9)
 
-    tgen_pkt_rate = 10 * 1e9 / (8 * (DATA_PKT_SIZE + 24))
-    bess.add_tc('tgen', policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)})
+# Traffic generator: this generates data pkts unlike the MdcPktGen that generate ctrl pkts
+# Recommended: Use when the NIC has at least 2 ports, and when you want to generate traffic using BESS
+# Data rate depends on the capacity (Gbps), and data_pkt_size and Ethernet framing overhead (bytes)
+tgen_pkt_rate = 10 * 1e9 / (8 * (data_pkt_size + 24))
+bess.add_tc('tgen', policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)})
 
-    # creates a source, and limits its pkt rate
-    tgen_src::Source()
-    tgen_src.attach_task('tgen')
+# Creates a source, and limits its pkt rate
+tgen_src::Source()
+tgen_src.attach_task('tgen')
 
-    # sends generated traffic on port1
-    tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> port1_out0
-else:
-    mdc_pkt_gen = MdcPktGen(template=hc_pkt_bytes, pps=1e2)
-    mdc_hc = MdcHealthCheck()
-
-    start_core = 10
-    for i in range(num_cores):
-        bess.add_worker(wid=i, core=i+start_core)
-
-    port0::PMDPort(port_id=0, num_inc_q=4, num_out_q=4)
-    port1::PMDPort(port_id=1, num_inc_q=4, num_out_q=4)
-
-    port0_inc0::QueueInc(port=port0, qid=0)
-    # port0_inc1::QueueInc(port=port0, qid=1)
-    # port0_inc2::QueueInc(port=port0, qid=2)
-    # port0_inc3::QueueInc(port=port0, qid=3)
-    port1_inc0::QueueInc(port=port1, qid=0)
-
-    port0_out0::QueueOut(port=port0, qid=0)
-    port0_out1::QueueOut(port=port0, qid=2)
-    port1_out0::QueueOut(port=port1, qid=0)
-
-    # merges pkts from all incoming ports, and sends them to mDC Receiver
-    port0_inc0 -> mdc_rec
-    port1_inc0 -> Sink()
-
-    # port0_inc1 -> Sink()
-    # port0_inc2 -> Sink()
-    # port0_inc3 -> Sink()
-
-    # processed pkts: unlabeled pkts and update-state ctrl pkts
-    mdc_rec:0  -> port0_out0
-
-    # if the Agent host has a receiver, sends these pkts to Sink()
-    mdc_rec:1  -> Sink()
-
-
-    # traffic generator
-    tgen_pkt_rate = 10 * 1e9 / (8 * (DATA_PKT_SIZE + 24))
-    bess.add_tc('tgen', policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)})
-
-    # creates a source, and limits its pkt rate
-    tgen_src::Source()
-    tgen_src.attach_task('tgen')
-
-    # sends generated traffic on port1
-    tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> port1_out0
-
-    # health check pkts
-    q::Queue()
-    mdc_pkt_gen -> 0:mdc_hc
-    mdc_rec:2 -> q -> 1:mdc_hc
-    mdc_hc -> port0_out1
-    q.attach_task(wid=9)
-    mdc_pkt_gen.attach_task(wid=9)
+# Sends generated traffic on Port1
+tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> port1_out0
