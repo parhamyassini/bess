@@ -361,23 +361,30 @@ static int parse_mac_addr(const char *str, char *addr) {
 
 
 const Commands MdcReceiver::cmds = {
-        {"add",   "MdcReceiverArg",
+        {"add",   "MdcReceiverCommandAddArg",
                               MODULE_CMD_FUNC(&MdcReceiver::CommandAdd), Command::THREAD_UNSAFE},
         {"clear", "EmptyArg", MODULE_CMD_FUNC(&MdcReceiver::CommandClear),
                                                                          Command::THREAD_UNSAFE},
 };
 
 CommandResponse
-MdcReceiver::Init(const sample::mdc_receiver::pb::MdcReceiverArg &) {
+MdcReceiver::Init(const sample::mdc_receiver::pb::MdcReceiverArg &arg) {
     int ret = 0;
     int size = MDC_DEFAULT_TABLE_SIZE;
     int bucket = MDC_MAX_BUCKET_SIZE;
 
-    ret = mdc_init(&mdc_table_, size, bucket);
+    // Parses Agent ID
+    if(arg.agent_id() <= 0) {
+        return CommandFailure(-1, "Agent ID has to be a positive integer");
+    }
 
+    agent_id_ = arg.agent_id();
+
+    // Initialize the table
+    ret = mdc_init(&mdc_table_, size, bucket);
     if (ret != 0) {
         return CommandFailure(-ret,
-                              "initialization failed with argument "
+                              "MAC-Label table initialization failed with argument "
                               "size: '%d' bucket: '%d'",
                               size, bucket);
     }
@@ -390,7 +397,7 @@ void MdcReceiver::DeInit() {
 }
 
 CommandResponse MdcReceiver::CommandAdd(
-        const sample::mdc_receiver::pb::MdcReceiverArg &arg) {
+        const sample::mdc_receiver::pb::MdcReceiverCommandAddArg &arg) {
 
     for (int i = 0; i < arg.entries_size(); i++) {
         const auto &entry = arg.entries(i);
@@ -432,6 +439,8 @@ void MdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
     for (int i = 0; i < cnt; i++) {
         bess::Packet *pkt = batch->pkts()[i];
         Ethernet *eth = pkt->head_data<Ethernet *>();
+
+        // Data pkts
         if (eth->ether_type == be16_t(Mdc::kDataType)) {
             be32_t *p = pkt->head_data<be32_t *>(sizeof(Ethernet));
             uint8_t mode = p->raw_value() & 0x000000ff;
@@ -446,12 +455,19 @@ void MdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
                 if (ret != 0) {
                     out_label = 0x0a0b0c;
                 }
-                *p = (be32_t(0xff) << 24) | be32_t(out_label);
+                if((agent_id_ & out_label) == agent_id_) {
+                    bess::Packet *newpkt = bess::Packet::copy(pkt);
+                    if (newpkt) {
+                        EmitPacket(ctx, newpkt, 1);
+                    }
+                }
+                *p = (be32_t(0xff) << 24) | be32_t(out_label & ~agent_id_);
                 EmitPacket(ctx, pkt, 0);
-            } else {
-                // if mode is 0xff, the data pkt is already labeled, emit it to the receiving app.
-                EmitPacket(ctx, pkt, 1);
             }
+//            else {
+//                // if mode is 0xff, the data pkt is already labeled, emit it to the receiving app.
+//                EmitPacket(ctx, pkt, 1);
+//            }
         } else if (eth->ether_type == be16_t(Mdc::kControlStateType)) {
             // TODO: update state
             EmitPacket(ctx, pkt, 0);

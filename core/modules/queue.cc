@@ -51,7 +51,7 @@ int Queue::Resize(int slots) {
   int bytes = llring_bytes_with_slots(slots);
 
   new_queue =
-      reinterpret_cast<llring *>(std::aligned_alloc(alignof(llring), bytes));
+      reinterpret_cast<llring *>(aligned_alloc(alignof(llring), bytes));
   if (!new_queue) {
     return -ENOMEM;
   }

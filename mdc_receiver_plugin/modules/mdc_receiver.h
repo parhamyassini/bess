@@ -87,7 +87,7 @@ public:
   static const Commands cmds;
   static const gate_idx_t kNumOGates = 3;
 
-  MdcReceiver() : Module(), mdc_table_() {
+  MdcReceiver() : Module(), agent_id_(), mdc_table_() {
       max_allowed_workers_ = Worker::kMaxWorkers;
   }
 
@@ -96,10 +96,11 @@ public:
 
   void ProcessBatch(Context *ctx, bess::PacketBatch *batch) override;
 
-  CommandResponse CommandAdd(const sample::mdc_receiver::pb::MdcReceiverArg &arg);
+  CommandResponse CommandAdd(const sample::mdc_receiver::pb::MdcReceiverCommandAddArg &arg);
   CommandResponse CommandClear(const bess::pb::EmptyArg &arg);
 
 private:
+    uint32_t agent_id_;
     struct mdc_table mdc_table_;
 };
 

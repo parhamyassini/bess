@@ -39,6 +39,23 @@ message MdcReceiverCommandClearArg {
 }
 
 /**
+ * The MdcReceiver module adds/maintains a list of (MAC address, label) tuples
+ *
+ * __Input Gates__: 1
+ * __Output Gates__: 1
+ */
+message MdcReceiverCommandAddArg {
+  /**
+   *
+   */
+  message Entry {
+    string addr = 1; /// The MAC address to match
+    uint32 label = 2; ///
+  }
+  repeated Entry entries = 1; /// A list of MACLabel entries.
+}
+
+/**
  * The SequentialUpdate module rewrites a specified field (`offset` and `size`) in a packet
  * with a sequentially increased value from a specified min to max values.
  *
@@ -46,13 +63,8 @@ message MdcReceiverCommandClearArg {
  * __Output Gates__: 1
  */
 message MdcReceiverArg {
-  /**
-   * SequentialUpdate's Field specifies where to rewrite, and what values to rewrite
-   * in each packet processed.
-   */
-  message Entry {
-    string addr = 1; /// The MAC address to match
-    uint32 label = 2; ///
-  }
-  repeated Entry entries = 1; /// A list of L2Forward entries.
+  uint32 agent_id = 1; /// Agent ID
 }
+
+
+
