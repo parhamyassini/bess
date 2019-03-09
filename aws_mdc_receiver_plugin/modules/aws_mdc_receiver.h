@@ -90,7 +90,8 @@ public:
   static const Commands cmds;
   static const gate_idx_t kNumOGates = 2;
 
-  AwsMdcReceiver() : Module(), agent_id_(), mdc_table_() {
+  AwsMdcReceiver() : Module(), agent_id_(), mdc_table_(),
+                     switch_ip_(), switch_mac_(), agent_ip_(), agent_mac_() {
       max_allowed_workers_ = Worker::kMaxWorkers;
   }
 

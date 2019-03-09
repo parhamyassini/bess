@@ -147,18 +147,22 @@ void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
 //        Udp *udp = reinterpret_cast<Udp *>(reinterpret_cast<uint8_t *>(ip) + ip_bytes);
         // Access UDP payload (i.e., mDC data)
         be32_t *p = pkt->head_data<be32_t *>(sizeof(Ethernet) + ip_bytes + sizeof(Udp));
-//            std::cout << std::hex << static_cast<int>(mode) << std::endl;
+//        std::cout << "SWITCH";
+//        std::cout << std::hex << static_cast<int>(p->value()) << std::endl;
+//        std::cout << std::hex << static_cast<int>(p->raw_value()) << std::endl;
+//        std::cout << sizeof(Ethernet) + ip_bytes + sizeof(Udp) << std::endl;
 
         // Data pkts
-        uint8_t mode = p->raw_value() & 0x00ff0000;
+        uint8_t mode = (p->raw_value() & 0x00ff0000) >> 16;
+        std::cout << std::hex << static_cast<int>(mode) << std::endl;
         if (mode == 0x00) {
             // If mode is 0x00, the data pkt needs to be forwarded to the active agent
             EmitPacket(ctx, pkt, active_agent_id_);
         } else {
             // Let's check the label
-            uint8_t label = p->raw_value() & 0xff000000;
+            uint8_t label = (p->raw_value() & 0xff000000) >> 24;
             int remaining_gate_count = numberOfSetBits_8(label);
-
+//            std::cout << "remaining_gate_count" << remaining_gate_count;
             // We actually shouldn't reach here
             if (remaining_gate_count == 0) {
                 DropPacket(ctx, pkt);

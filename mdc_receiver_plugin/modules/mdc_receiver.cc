@@ -462,10 +462,13 @@ void MdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
                         EmitPacket(ctx, newpkt, 1);
                     }
                 }
+                // TODO: if agent is the only receiver, don't emit pkt again
+
                 // Label the pkt, make sure to remove the agent ID label from the final label
                 *p = (be32_t(0xff) << 24) | be32_t(out_label & ~agent_id_);
                 EmitPacket(ctx, pkt, 0);
             }
+            //TODO receive the pkt here
         } else if (eth->ether_type == be16_t(Mdc::kControlStateType)) {
             // TODO: update state
             EmitPacket(ctx, pkt, 0);
