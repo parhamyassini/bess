@@ -154,7 +154,7 @@ void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
 
         // Data pkts
         uint8_t mode = (p->raw_value() & 0x00ff0000) >> 16;
-        std::cout << std::hex << static_cast<int>(mode) << std::endl;
+//        std::cout << std::hex << static_cast<int>(mode) << std::endl;
         if (mode == 0x00) {
             // If mode is 0x00, the data pkt needs to be forwarded to the active agent
             EmitPacket(ctx, pkt, active_agent_id_);

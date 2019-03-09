@@ -430,7 +430,7 @@ CommandResponse AwsMdcReceiver::CommandAdd(
         }
 
         int r = aws_mdc_add_entry(&mdc_table_, aws_mdc_addr_to_u64(addr), label);
-        std::cout << r << str_addr << aws_mdc_addr_to_u64(addr) << label ;
+//        std::cout << r << str_addr << aws_mdc_addr_to_u64(addr) << label ;
         if (r == -EEXIST) {
             return CommandFailure(EEXIST, "MAC address '%s' already exist", str_addr);
         } else if (r == -ENOMEM) {
