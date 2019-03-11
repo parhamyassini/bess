@@ -455,8 +455,26 @@ void AwsMdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
         Ethernet *eth = pkt->head_data<Ethernet *>();
 
         if (eth->ether_type != be16_t(Ethernet::Type::kIpv4)) {
-            DropPacket(ctx, pkt);
-            continue;
+            if (eth->ether_type == be16_t(Ethernet::Type::kArp)) {
+                Arp *arp = reinterpret_cast<Arp *>(eth + 1);
+                if (arp->opcode == be16_t(Arp::Opcode::kRequest)) {
+                    arp->opcode = be16_t(Arp::Opcode::kReply);
+
+                    eth->dst_addr = eth->src_addr;
+                    eth->src_addr = agent_mac_;
+
+                    arp->target_hw_addr = arp->sender_hw_addr;
+                    arp->sender_hw_addr = agent_mac_;
+
+                    arp->target_ip_addr = arp->sender_ip_addr;
+                    arp->sender_ip_addr = agent_ip_;
+                    EmitPacket(ctx, pkt, 0);
+                    continue;
+                }
+            } else {
+                DropPacket(ctx, pkt);
+                continue;
+            }
         }
 
         Ipv4 *ip = reinterpret_cast<Ipv4 *>(eth + 1);
