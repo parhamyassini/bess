@@ -30,23 +30,28 @@
 
 import scapy.all as scapy
 
+SWITCH_MACS = ['11:22:33:44:55:01', '11:22:33:44:55:02']
+AGENTS_MACS = ['aa:bb:cc:dd:ee:01', 'aa:bb:cc:dd:ee:02']
+SWITCH_IPS = ['10.0.0.1', '10.0.0.2']
+AGENTS_IPS = ['10.1.0.1', '10.1.0.2']
 
 CONST_DATA_SIZE = 46
 
-num_cores = int($BESS_CORES!'3')
-data_pkt_size = int($BESS_DATA_PKT_SIZE!'1024')
+num_cores = int($BESS_CORES!'20')
+data_pkt_size = int($BESS_DATA_PKT_SIZE!'512')
 
 assert 64 <= data_pkt_size <= 1024, 'Data pkts needs to be in the range [64, 1024] in bytes'
 
 print('Core count = %d' % num_cores)
 print('Data pkt size = %d' % data_pkt_size)
 
+
 # Data pkt
 class MDCData(scapy.Packet):
     name = 'MulticastDataCenterData '
-    fields_desc=[scapy.ShortField('addr', 0),
-                 scapy.XByteField('mode', 0),
-                 scapy.XByteField('label' , 0)]
+    fields_desc = [scapy.ShortField('addr', 0),
+                   scapy.XByteField('mode', 0),
+                   scapy.XByteField('label', 0)]
 
 
 # Data pkt template
@@ -54,48 +59,37 @@ data_eth = scapy.Ether(src='aa:bb:cc:dd:ee:01', dst='11:22:33:44:55:01', type=0x
 data_ip = scapy.IP(src='10.1.0.1', dst='10.0.0.1')
 data_udp = scapy.UDP(sport=10001, dport=10002)
 unlabeled_data_mdc = MDCData(addr=0x1a1b, mode=0x0, label=0x0)
-data_payload = bytes(unlabeled_data_mdc) + b"\0" * (data_pkt_size-CONST_DATA_SIZE)
-unlabeled_data_pkt = data_eth/data_ip/data_udp/data_payload
+data_payload = bytes(unlabeled_data_mdc) + b"\0" * (data_pkt_size - CONST_DATA_SIZE)
+unlabeled_data_pkt = data_eth / data_ip / data_udp / data_payload
 unlabeled_data_pkt_bytes = bytes(unlabeled_data_pkt)
 
-# If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
+# TODO: If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
 # TODO: this needs to depend on the CPU layout and where the NIC is.
 start_core = 0
 for i in range(num_cores):
-    bess.add_worker(wid=i, core=i+start_core)
+    bess.add_worker(wid=i, core=i + start_core)
 
+# Define Ports and Queues
+port0::PMDPort(port_id=0, num_inc_q=4, num_out_q=4)
+port1::PMDPort(port_id=1, num_inc_q=4, num_out_q=4)
 
-mdc_switch::AwsMdcSwitch(switch_macs=['11:22:33:44:55:01', '11:22:33:44:55:02'],
-                          switch_ips=['10.0.0.1', '10.0.0.2'],
-                          agents_macs=['aa:bb:cc:dd:ee:01', 'aa:bb:cc:dd:ee:02'],
-                          agents_ips=['10.1.0.1', '10.1.0.2'],
-                          )
+port0_inc0::QueueInc(port=port0, qid=0)
+port1_inc0::QueueInc(port=port1, qid=0)
 
-mdc_rec1::AwsMdcReceiver(agent_id=0x01,
-                         switch_mac='11:22:33:44:55:01',
-                         agent_mac='aa:bb:cc:dd:ee:01',
-                         switch_ip='10.0.0.1',
-                         agent_ip='10.1.0.1',
-                         )
+port0_out0::QueueOut(port=port0, qid=0)
+port0_out1::QueueOut(port=port0, qid=2)
+port1_out0::QueueOut(port=port1, qid=0)
 
-mdc_rec2::AwsMdcReceiver(agent_id=0x02,
-                          switch_mac='11:22:33:44:55:02',
-                          agent_mac='aa:bb:cc:dd:ee:02',
-                          switch_ip='10.0.0.2',
-                          agent_ip='10.1.0.2',
-                          )
+mdc_switch::AwsMdcSwitch(switch_macs=SWITCH_MACS,
+                         switch_ips=SWITCH_IPS,
+                         agents_macs=AGENTS_MACS,
+                         agents_ips=AGENTS_IPS)
 
-# Adds (session address, label) tuples to the MdcReceiver module
-mdc_rec1.add(entries=[{'addr': '1a:1b', 'label': 0x03}])
+port0_inc0 -> 0:mdc_switch
+port1_inc0 -> 1:mdc_switch
 
-mdc_rec1:0 -> 0:mdc_switch
-mdc_rec2:0 -> 1:mdc_switch
-
-mdc_switch:0 -> mdc_rec1
-mdc_switch:1 -> mdc_rec2
-
-mdc_rec1:1 -> rec1_mypkts::Sink()
-mdc_rec2:1 -> rec2_mypkts::Sink()
+mdc_switch:0 -> port0_out0
+mdc_switch:1 -> port1_out0
 
 # Traffic generator: this generates data pkts unlike the MdcPktGen that generate ctrl pkts
 # Recommended: Use when the NIC has at least 2 ports, and when you want to generate traffic using BESS
@@ -108,4 +102,4 @@ tgen_src::Source()
 tgen_src.attach_task('tgen')
 
 # Sends generated traffic on Port1
-tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) ->  7:mdc_switch
+tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> 7:mdc_switch

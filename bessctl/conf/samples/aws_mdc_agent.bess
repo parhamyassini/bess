@@ -1,0 +1,65 @@
+# Copyright (c) 2014-2017, The Regents of the University of California.
+# Copyright (c) 2016-2017, Nefeli Networks, Inc.
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+# list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+# this list of conditions and the following disclaimer in the documentation
+# and/or other materials provided with the distribution.
+#
+# * Neither the names of the copyright holders nor the names of their
+# contributors may be used to endorse or promote products derived from this
+# software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+
+
+AGENT_ID = 0x01
+SWITCH_MAC = '11:22:33:44:55:01'
+AGENT_MAC = 'aa:bb:cc:dd:ee:01'
+SWITCH_IP = '10.0.0.1'
+AGENT_IP = '10.1.0.1'
+
+num_cores = int($BESS_CORES!'20')
+
+
+print('Core count = %d' % num_cores)
+
+# If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
+# TODO: this needs to depend on the CPU layout and where the NIC is.
+start_core = 0
+for i in range(num_cores):
+    bess.add_worker(wid=i, core=i + start_core)
+
+port0::PMDPort(port_id=0, num_inc_q=4, num_out_q=4)
+port0_inc0::QueueInc(port=port0, qid=0)
+port0_out0::QueueOut(port=port0, qid=0)
+
+mdc_rec::AwsMdcReceiver(agent_id=AGENT_ID,
+                        switch_mac=SWITCH_MAC,
+                        agent_mac=AGENT_MAC,
+                        switch_ip=SWITCH_IP,
+                        agent_ip=AGENT_IP)
+
+# Adds (session address, label) tuples to the MdcReceiver module
+mdc_rec.add(entries=[{'addr': '1a:1b', 'label': 0x03}])
+
+port0_inc0 -> mdc_rec
+mdc_rec:0 -> port0_out0
+
+mdc_rec:1 -> rec1_mypkts::Sink()
