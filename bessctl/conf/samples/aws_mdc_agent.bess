@@ -30,10 +30,19 @@
 
 
 AGENT_ID = 0x01
-SWITCH_MAC = '11:22:33:44:55:01'
-AGENT_MAC = 'aa:bb:cc:dd:ee:01'
-SWITCH_IP = '10.0.0.1'
-AGENT_IP = '10.1.0.1'
+SWITCH_MAC = '0a:23:5e:9c:b1:5c'
+AGENT_MAC = '0a:b2:17:d3:c2:d6'
+SWITCH_IP = '172.31.1.107'
+AGENT_IP = '172.31.7.206'
+
+
+
+#AGENT_ID = 0x02
+#SWITCH_MAC = '0a:0f:89:8e:02:4c'
+#AGENT_MAC = '0a:36:4b:72:2e:12'
+#SWITCH_IP = '172.31.2.162'
+#AGENT_IP = '172.31.3.141'
+
 
 num_cores = int($BESS_CORES!'20')
 
@@ -41,7 +50,7 @@ num_cores = int($BESS_CORES!'20')
 print('Core count = %d' % num_cores)
 
 # If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
-# TODO: this needs to depend on the CPU layout and where the NIC is.
+# TODO: this needs to depend on the CPU layout and where the NIC is
 start_core = 0
 for i in range(num_cores):
     bess.add_worker(wid=i, core=i + start_core)
@@ -63,3 +72,15 @@ port0_inc0 -> mdc_rec
 mdc_rec:0 -> port0_out0
 
 mdc_rec:1 -> rec1_mypkts::Sink()
+
+
+#bpf::BPF()
+#bpf.add(filters=[{'filter':'arp', 'gate':0}])
+#bpf.add(filters=[{'filter':'ip and udp', 'gate':1}])
+
+#arp::ArpResponder()
+#arp.add(ip=AGENT_IP, mac_addr=AGENT_MAC)
+
+#port0_inc0 -> bpf
+#bpf:0 -> arp -> port0_out0
+#bpf:1 -> mdc_rec
