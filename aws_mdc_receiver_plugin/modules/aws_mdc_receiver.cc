@@ -516,11 +516,11 @@ void AwsMdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
 //            std::cout << "RECV - 2";
 //            std::cout << std::hex << static_cast<int>(p->value()) << std::endl;
 //            std::cout << std::hex << static_cast<int>(p->raw_value()) << std::endl;
-            eth->dst_addr = agent_mac_;
-            ip->dst = agent_ip_;
+            eth->dst_addr = switch_mac_; //agent_mac_;
+            ip->dst = switch_ip_; //agent_ip_;
 
-            eth->src_addr = switch_mac_;
-            ip->src = switch_ip_;
+            eth->src_addr = agent_mac_; //switch_mac_;
+            ip->src = agent_ip_; //switch_ip_;
 
             EmitPacket(ctx, pkt, 0);
         } else {
