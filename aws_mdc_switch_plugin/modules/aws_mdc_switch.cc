@@ -200,25 +200,42 @@ void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
             for (uint8_t i=0; i < AWS_MAX_INTF_COUNT; i++) {
                 if((label_gates_[i] & label) == label_gates_[i]) {
                     if(remaining_gate_count == 1) {
+                        Udp *udp = reinterpret_cast<Udp *>(reinterpret_cast<uint8_t *>(ip) + ip_bytes);
                         eth->dst_addr = agent_macs_[i];
                         ip->dst = agent_ips_[i];
 
                         eth->src_addr = switch_macs_[i];
                         ip->src = switch_ips_[i];
+                        ip-> id = be16_t(i+1); 
+                        ip->fragment_offset = be16_t(Ipv4::Flag::kDF);
+                        //ip->checksum = bess::utils::CalculateIpv4NoOptChecksum(*ip); 
+			// if(ip->ttl > 1)
+			//	ip->ttl -= 1;
+			udp->checksum = CalculateIpv4UdpChecksum(*ip, *udp);
+			uint16_t c = 0xD295;
+                        ip->checksum = c; // bess::utils::CalculateIpv4Checksum(*ip);
+                        ip->checksum = bess::utils::CalculateIpv4Checksum(*ip);
                         EmitPacket(ctx, pkt, i);
-                        break;
+                        //break;
                     } else {
                         // copy the pkt only if we have more than one gate to duplicate pkt to
                         bess::Packet *new_pkt = bess::Packet::copy(pkt);
                         if (new_pkt) {
                             Ethernet *new_eth = new_pkt->head_data<Ethernet *>();
                             Ipv4 *new_ip = reinterpret_cast<Ipv4 *>(new_eth + 1);
-
+			    Udp *new_udp = reinterpret_cast<Udp *>(reinterpret_cast<uint8_t *>(new_ip) + ip_bytes);
                             new_eth->dst_addr = agent_macs_[i];
                             new_ip->dst = agent_ips_[i];
 
                             new_eth->src_addr = switch_macs_[i];
                             new_ip->src = switch_ips_[i];
+                            new_ip->id = be16_t(i+1);
+			    ip->fragment_offset = be16_t(Ipv4::Flag::kDF);
+                            // new_ip->checksum = bess::utils::CalculateIpv4NoOptChecksum(*new_ip);
+			    //if(new_ip->ttl > 1)
+                            //    new_ip->ttl -= 1;
+			    new_udp->checksum = CalculateIpv4UdpChecksum(*new_ip, *new_udp);
+			    new_ip->checksum = bess::utils::CalculateIpv4Checksum(*new_ip);
 
                             EmitPacket(ctx, new_pkt, i);
                         }

@@ -35,6 +35,7 @@
 #include "module.h"
 #include "utils/bits.h"
 #include "utils/endian.h"
+#include "utils/checksum.h"
 #include "utils/ether.h"
 #include "utils/arp.h"
 #include "utils/ip.h"
