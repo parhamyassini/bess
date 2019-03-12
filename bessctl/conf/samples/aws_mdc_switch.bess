@@ -30,10 +30,10 @@
 
 import scapy.all as scapy
 
-SWITCH_MACS = ['0a:23:5e:9c:b1:5c', '0a:4e:2e:be:cb:52']
-AGENTS_MACS = ['0a:b2:17:d3:c2:d6', '0a:34:b9:2e:27:10']
-SWITCH_IPS = ['172.31.1.107', '172.31.8.238']
-AGENTS_IPS = ['172.31.7.206', '172.31.11.133']
+SWITCH_MACS = ['0a:9b:a2:71:f4:fe', '0a:38:76:f4:96:ce']
+AGENTS_MACS = ['0a:c5:9c:8b:6c:ec', '0a:cb:13:76:d4:a8']
+SWITCH_IPS = ['172.31.6.54', '172.31.13.185']
+AGENTS_IPS = ['172.31.4.40', '172.31.1.236']
 
 CONST_DATA_SIZE = 46
 
@@ -55,8 +55,8 @@ class MDCData(scapy.Packet):
 
 
 # Data pkt template
-data_eth = scapy.Ether(src='0a:23:5e:9c:b1:5c', dst='0a:b2:17:d3:c2:d6', type=0x0800)
-data_ip = scapy.IP(src='172.31.1.107', dst='172.31.7.206')
+data_eth = scapy.Ether(src=SWITCH_MACS[0], dst=AGENTS_MACS[0], type=0x0800)
+data_ip = scapy.IP(src=SWITCH_IPS[0], dst=AGENTS_IPS[0])
 #data_eth = scapy.Ether(src='0a:0f:89:8e:02:4c', dst='0a:34:b9:2e:27:10', type=0x0800)
 #data_ip = scapy.IP(src='172.31.2.162', dst='172.31.11.133')
 data_udp = scapy.UDP(sport=10001, dport=10002)
@@ -90,8 +90,8 @@ mdc_switch::AwsMdcSwitch(switch_macs=SWITCH_MACS,
 port0_inc0 -> 0:mdc_switch
 port1_inc0 -> 1:mdc_switch
 
-mdc_switch:0 -> q1::Queue() -> port0_out0
-mdc_switch:1 -> q2::Queue() -> port1_out0
+mdc_switch:0 -> q1::Queue() -> Dump(interval=2) ->  port0_out0
+mdc_switch:1 -> q2::Queue() -> Dump(interval=2) -> port1_out0
 
 # Traffic generator: this generates data pkts unlike the MdcPktGen that generate ctrl pkts
 # Recommended: Use when the NIC has at least 2 ports, and when you want to generate traffic using BESS
