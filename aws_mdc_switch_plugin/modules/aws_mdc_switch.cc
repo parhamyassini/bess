@@ -133,8 +133,36 @@ void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
         Ethernet *eth = pkt->head_data<Ethernet *>();
 
         if (eth->ether_type != be16_t(Ethernet::Type::kIpv4)) {
-            DropPacket(ctx, pkt);
-            continue;
+	    std::cout << eth->src_addr.ToString();
+            std::cout << eth->dst_addr.ToString();
+	    if (eth->ether_type == be16_t(Ethernet::Type::kArp)) {
+                gate_idx_t incoming_gate = ctx->current_igate;
+		std::cout << "INCOMING" << incoming_gate;
+                Arp *arp = reinterpret_cast<Arp *>(eth + 1);
+                if (arp->opcode == be16_t(Arp::Opcode::kRequest)) {
+                    arp->opcode = be16_t(Arp::Opcode::kReply);
+
+                    eth->dst_addr = eth->src_addr;
+                    eth->src_addr = switch_macs_[incoming_gate];
+
+                    arp->target_hw_addr = arp->sender_hw_addr;
+                    arp->sender_hw_addr = switch_macs_[incoming_gate];
+
+                    arp->target_ip_addr = arp->sender_ip_addr;
+                    arp->sender_ip_addr = switch_ips_[incoming_gate];
+                    EmitPacket(ctx, pkt, incoming_gate);
+                    continue;
+                }
+            } else {
+                DropPacket(ctx, pkt);
+                continue;
+            }
+	
+            //std::cout << eth->src_addr.ToString();
+	    //std::cout << eth->dst_addr.ToString();
+	    
+	    //DropPacket(ctx, pkt);
+            //continue;
         }
 
         Ipv4 *ip = reinterpret_cast<Ipv4 *>(eth + 1);

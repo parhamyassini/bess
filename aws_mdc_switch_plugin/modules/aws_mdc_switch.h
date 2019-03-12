@@ -36,6 +36,7 @@
 #include "utils/bits.h"
 #include "utils/endian.h"
 #include "utils/ether.h"
+#include "utils/arp.h"
 #include "utils/ip.h"
 #include "utils/udp.h"
 #include "utils/exact_match_table.h"
@@ -48,6 +49,7 @@ using bess::utils::be16_t;
 using bess::utils::be32_t;
 using bess::utils::be64_t;
 using bess::utils::Ethernet;
+using bess::utils::Arp;
 using bess::utils::Ipv4;
 using bess::utils::Udp;
 

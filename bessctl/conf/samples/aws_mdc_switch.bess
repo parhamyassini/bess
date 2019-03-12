@@ -30,10 +30,10 @@
 
 import scapy.all as scapy
 
-SWITCH_MACS = ['0a:23:5e:9c:b1:5c', '0a:0f:89:8e:02:4c']
-AGENTS_MACS = ['0a:b2:17:d3:c2:d6', '0a:36:4b:72:2e:12']
-SWITCH_IPS = ['172.31.1.107', '172.31.2.162']
-AGENTS_IPS = ['172.31.7.206', '172.31.3.141']
+SWITCH_MACS = ['0a:23:5e:9c:b1:5c', '0a:4e:2e:be:cb:52']
+AGENTS_MACS = ['0a:b2:17:d3:c2:d6', '0a:34:b9:2e:27:10']
+SWITCH_IPS = ['172.31.1.107', '172.31.8.238']
+AGENTS_IPS = ['172.31.7.206', '172.31.11.133']
 
 CONST_DATA_SIZE = 46
 
@@ -57,6 +57,8 @@ class MDCData(scapy.Packet):
 # Data pkt template
 data_eth = scapy.Ether(src='0a:23:5e:9c:b1:5c', dst='0a:b2:17:d3:c2:d6', type=0x0800)
 data_ip = scapy.IP(src='172.31.1.107', dst='172.31.7.206')
+#data_eth = scapy.Ether(src='0a:0f:89:8e:02:4c', dst='0a:34:b9:2e:27:10', type=0x0800)
+#data_ip = scapy.IP(src='172.31.2.162', dst='172.31.11.133')
 data_udp = scapy.UDP(sport=10001, dport=10002)
 unlabeled_data_mdc = MDCData(addr=0x1a1b, mode=0x0, label=0x0)
 data_payload = bytes(unlabeled_data_mdc) + b"\0" * (data_pkt_size - CONST_DATA_SIZE)
@@ -70,14 +72,14 @@ for i in range(num_cores):
     bess.add_worker(wid=i, core=i + start_core)
 
 # Define Ports and Queues
-port0::PMDPort(port_id=0, num_inc_q=4, num_out_q=4)
-port1::PMDPort(port_id=1, num_inc_q=4, num_out_q=4)
+port0::PMDPort(port_id=0, num_inc_q=2, num_out_q=2)
+port1::PMDPort(port_id=1, num_inc_q=2, num_out_q=2)
 
 port0_inc0::QueueInc(port=port0, qid=0)
 port1_inc0::QueueInc(port=port1, qid=0)
 
 port0_out0::QueueOut(port=port0, qid=0)
-port0_out1::QueueOut(port=port0, qid=2)
+#port0_out1::QueueOut(port=port0, qid=2)
 port1_out0::QueueOut(port=port1, qid=0)
 
 mdc_switch::AwsMdcSwitch(switch_macs=SWITCH_MACS,
@@ -88,7 +90,7 @@ mdc_switch::AwsMdcSwitch(switch_macs=SWITCH_MACS,
 port0_inc0 -> 0:mdc_switch
 port1_inc0 -> 1:mdc_switch
 
-mdc_switch:0 -> q1::Queue() -> Dump(interval=1) -> port0_out0
+mdc_switch:0 -> q1::Queue() -> port0_out0
 mdc_switch:1 -> q2::Queue() -> port1_out0
 
 # Traffic generator: this generates data pkts unlike the MdcPktGen that generate ctrl pkts
