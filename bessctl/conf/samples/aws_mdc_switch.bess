@@ -30,10 +30,10 @@
 
 import scapy.all as scapy
 
-SWITCH_MACS = ['0a:9b:a2:71:f4:fe', '0a:38:76:f4:96:ce']
-AGENTS_MACS = ['0a:c5:9c:8b:6c:ec', '0a:cb:13:76:d4:a8']
-SWITCH_IPS = ['172.31.6.54', '172.31.13.185']
-AGENTS_IPS = ['172.31.4.40', '172.31.1.236']
+SWITCH_MACS = ['0a:23:5e:9c:b1:5c', '0a:4e:2e:be:cb:52']
+AGENTS_MACS = ['0a:b2:17:d3:c2:d6', '0a:34:b9:2e:27:10']
+SWITCH_IPS = ['172.31.1.107', '172.31.8.238']
+AGENTS_IPS = ['172.31.7.206', '172.31.11.133']
 
 CONST_DATA_SIZE = 46
 
@@ -72,8 +72,8 @@ for i in range(num_cores):
     bess.add_worker(wid=i, core=i + start_core)
 
 # Define Ports and Queues
-port0::PMDPort(port_id=0, num_inc_q=2, num_out_q=2)
-port1::PMDPort(port_id=1, num_inc_q=2, num_out_q=2)
+port0::PMDPort(pci='0000:00:06.0')
+port1::PMDPort(pci='0000:00:08.0')
 
 port0_inc0::QueueInc(port=port0, qid=0)
 port1_inc0::QueueInc(port=port1, qid=0)
@@ -96,7 +96,7 @@ mdc_switch:1 -> q2::Queue() -> Dump(interval=2) -> port1_out0
 # Traffic generator: this generates data pkts unlike the MdcPktGen that generate ctrl pkts
 # Recommended: Use when the NIC has at least 2 ports, and when you want to generate traffic using BESS
 # Data rate depends on the capacity (Gbps), and data_pkt_size and Ethernet framing overhead (bytes)
-tgen_pkt_rate = 0.05 * 1e9 / (8 * (data_pkt_size + 24))
+tgen_pkt_rate = 5 * 1e9 / (8 * (data_pkt_size + 24))
 bess.add_tc('tgen', policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)})
 
 # Creates a source, and limits its pkt rate
