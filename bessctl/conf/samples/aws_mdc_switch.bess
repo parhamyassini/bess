@@ -30,15 +30,18 @@
 
 import scapy.all as scapy
 
+SWITCH_NICS = ['', '']
 SWITCH_MACS = ['0a:23:5e:9c:b1:5c', '0a:4e:2e:be:cb:52']
 AGENTS_MACS = ['0a:b2:17:d3:c2:d6', '0a:34:b9:2e:27:10']
 SWITCH_IPS = ['172.31.1.107', '172.31.8.238']
 AGENTS_IPS = ['172.31.7.206', '172.31.11.133']
 
+assert len(SWITCH_NICS) == len(SWITCH_MACS) == len(AGENTS_MACS) == len(SWITCH_IPS) == len(AGENTS_IPS), 'input lists need to have same number of elements'
+
 CONST_DATA_SIZE = 46
 
 num_cores = int($BESS_CORES!'20')
-data_pkt_size = int($BESS_DATA_PKT_SIZE!'128')
+data_pkt_size = int($BESS_DATA_PKT_SIZE!'1024')
 
 assert 64 <= data_pkt_size <= 1024, 'Data pkts needs to be in the range [64, 1024] in bytes'
 
@@ -57,8 +60,6 @@ class MDCData(scapy.Packet):
 # Data pkt template
 data_eth = scapy.Ether(src=SWITCH_MACS[0], dst=AGENTS_MACS[0], type=0x0800)
 data_ip = scapy.IP(src=SWITCH_IPS[0], dst=AGENTS_IPS[0])
-#data_eth = scapy.Ether(src='0a:0f:89:8e:02:4c', dst='0a:34:b9:2e:27:10', type=0x0800)
-#data_ip = scapy.IP(src='172.31.2.162', dst='172.31.11.133')
 data_udp = scapy.UDP(sport=10001, dport=10002)
 unlabeled_data_mdc = MDCData(addr=0x1a1b, mode=0x0, label=0x0)
 data_payload = bytes(unlabeled_data_mdc) + b"\0" * (data_pkt_size - CONST_DATA_SIZE)
@@ -72,26 +73,46 @@ for i in range(num_cores):
     bess.add_worker(wid=i, core=i + start_core)
 
 # Define Ports and Queues
-port0::PMDPort(pci='0000:00:06.0')
-port1::PMDPort(pci='0000:00:08.0')
+ports = [PMDPort(pci=switch_nic) for switch_nic in SWITCH_NICS]
 
-port0_inc0::QueueInc(port=port0, qid=0)
-port1_inc0::QueueInc(port=port1, qid=0)
-
-port0_out0::QueueOut(port=port0, qid=0)
-#port0_out1::QueueOut(port=port0, qid=2)
-port1_out0::QueueOut(port=port1, qid=0)
+for port_id, port in enumerate(ports):
+    qinc_name = 'port%d_inc0' % port_id
+    qout_name = 'port%d_out0' % port_id
+    QueueInc(name=qinc_name, port=port, qid=0)
+    QueueOut(name=qout_name, port=port, qid=0)
 
 mdc_switch::AwsMdcSwitch(switch_macs=SWITCH_MACS,
                          switch_ips=SWITCH_IPS,
                          agents_macs=AGENTS_MACS,
                          agents_ips=AGENTS_IPS)
 
-port0_inc0 -> 0:mdc_switch
-port1_inc0 -> 1:mdc_switch
+# a hack way to connect ports
+nic_count = len(SWITCH_NICS)
 
-mdc_switch:0 -> q1::Queue() -> Dump(interval=2) ->  port0_out0
-mdc_switch:1 -> q2::Queue() -> Dump(interval=2) -> port1_out0
+if nic_count >= 1:
+    port0_inc0 -> 0:mdc_switch
+    mdc_switch:0 -> q0::Queue() -> port0_out0
+if nic_count >= 2:
+    port1_inc0 -> 1:mdc_switch
+    mdc_switch:1 -> q1::Queue() -> port1_out0
+if nic_count >= 3:
+    port2_inc0 -> 2:mdc_switch
+    mdc_switch:2 -> q2::Queue() -> port2_out0
+if nic_count >= 4:
+    port3_inc0 -> 3:mdc_switch
+    mdc_switch:3 -> q3::Queue() -> port3_out0
+if nic_count >= 5:
+    port4_inc0 -> 4:mdc_switch
+    mdc_switch:4 -> q4::Queue() -> port4_out0
+if nic_count >= 6:
+    port5_inc0 -> 5:mdc_switch
+    mdc_switch:5 -> q5::Queue() -> port5_out0
+if nic_count >= 7:
+    port6_inc0 -> 6:mdc_switch
+    mdc_switch:6 -> q6::Queue() -> port6_out0
+
+# port1_inc0 -> 1:mdc_switch
+# mdc_switch:1 -> q2::Queue() -> port1_out0
 
 # Traffic generator: this generates data pkts unlike the MdcPktGen that generate ctrl pkts
 # Recommended: Use when the NIC has at least 2 ports, and when you want to generate traffic using BESS
