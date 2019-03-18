@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 (cd ~/bess/deps
-git clone https://github.com/dpdp/dpdk
+git clone https://github.com/DPDK/dpdk.git
 git clone https://github.com/amzn/amzn-drivers.git
 mv dpdk dpdk-17.11
 )

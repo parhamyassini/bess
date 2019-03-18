@@ -11,6 +11,6 @@ apt install -y make apt-transport-https ca-certificates g++ make pkg-config libu
 
 pip install protobuf grpcio scapy
 
-./aws_setup_hugepages.sh
+./aws_1_setup_hugepages.sh
 
 
