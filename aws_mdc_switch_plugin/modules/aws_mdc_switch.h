@@ -31,6 +31,7 @@
 #ifndef BESS_MODULES_LABELLOOKUP_H_
 #define BESS_MODULES_LABELLOOKUP_H_
 
+#include <map>
 
 #include "module.h"
 #include "utils/bits.h"
@@ -86,6 +87,9 @@ private:
 
     be32_t agent_ips_[AWS_MAX_INTF_COUNT];
     Ethernet::Address agent_macs_[AWS_MAX_INTF_COUNT];
+
+    // Mapping between IP (key) and gate_idx
+    std::map<be32_t, gate_idx_t> entries_;
 };
 
 #endif // BESS_MODULES_LABELLOOKUP_H_

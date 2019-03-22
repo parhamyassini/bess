@@ -30,7 +30,6 @@
 
 #include "aws_mdc_switch.h"
 
-
 //static int numberOfSetBits_32(uint32_t i)
 //{
 //    // Java: use >>> instead of >>
@@ -40,8 +39,7 @@
 //    return (((i + (i >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24;
 //}
 
-static int numberOfSetBits_8(uint8_t b )
-{
+static int numberOfSetBits_8(uint8_t b) {
     b = b - ((b >> 1) & 0x55);
     b = (b & 0x33) + ((b >> 2) & 0x33);
     return (((b + (b >> 4)) & 0x0F) * 0x01);
@@ -78,27 +76,29 @@ AwsMdcSwitch::Init(const sample::aws_mdc_switch::pb::AwsMdcSwitchArg &arg) {
     }
 
     for (int i = 0; i < arg.switch_ips_size(); i++) {
-        const std::string & switch_mac_str = arg.switch_macs(i);
-        const std::string & agent_mac_str = arg.agents_macs(i);
-        const std::string & switch_ip_str = arg.switch_ips(i);
-        const std::string & agent_ip_str = arg.agents_ips(i);
+        const std::string &switch_mac_str = arg.switch_macs(i);
+        const std::string &agent_mac_str = arg.agents_macs(i);
+        const std::string &switch_ip_str = arg.switch_ips(i);
+        const std::string &agent_ip_str = arg.agents_ips(i);
 
         switch_macs_[i] = Ethernet::Address(switch_mac_str);
         agent_macs_[i] = Ethernet::Address(agent_mac_str);
 
         be32_t switch_ip, agent_ip;
         bool ip_parsed = bess::utils::ParseIpv4Address(switch_ip_str, &switch_ip);
-        if(!ip_parsed) {
+        if (!ip_parsed) {
             return CommandFailure(EINVAL, "cannot parse switch IP %s", switch_ip_str.c_str());
         }
 
         ip_parsed = bess::utils::ParseIpv4Address(agent_ip_str, &agent_ip);
-        if(!ip_parsed) {
+        if (!ip_parsed) {
             return CommandFailure(EINVAL, "cannot parse agent IP %s", agent_ip_str.c_str());
         }
 
         switch_ips_[i] = switch_ip;
         agent_ips_[i] = agent_ip;
+
+        entries_[agent_ip] = i;
     }
 
     label_gates_[0] = 0x01;
@@ -130,14 +130,25 @@ void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
 
     for (int i = 0; i < cnt; i++) {
         bess::Packet *pkt = batch->pkts()[i];
+        gate_idx_t in_gate = ctx->current_igate;
+
+        // test code
+        if (in_gate == 6) {
+            EmitPacket(ctx, pkt, 7);
+            continue;
+        }
+
+
         Ethernet *eth = pkt->head_data<Ethernet *>();
 
+
+
         if (eth->ether_type != be16_t(Ethernet::Type::kIpv4)) {
-	    std::cout << eth->src_addr.ToString();
+            std::cout << eth->src_addr.ToString();
             std::cout << eth->dst_addr.ToString();
-	    if (eth->ether_type == be16_t(Ethernet::Type::kArp)) {
+            if (eth->ether_type == be16_t(Ethernet::Type::kArp)) {
                 gate_idx_t incoming_gate = ctx->current_igate;
-		std::cout << "INCOMING" << incoming_gate;
+                std::cout << "INCOMING" << incoming_gate;
                 Arp *arp = reinterpret_cast<Arp *>(eth + 1);
                 if (arp->opcode == be16_t(Arp::Opcode::kRequest)) {
                     arp->opcode = be16_t(Arp::Opcode::kReply);
@@ -157,11 +168,11 @@ void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
                 DropPacket(ctx, pkt);
                 continue;
             }
-	
+
             //std::cout << eth->src_addr.ToString();
-	    //std::cout << eth->dst_addr.ToString();
-	    
-	    //DropPacket(ctx, pkt);
+            //std::cout << eth->dst_addr.ToString();
+
+            //DropPacket(ctx, pkt);
             //continue;
         }
 
@@ -172,17 +183,11 @@ void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
         }
 
         int ip_bytes = ip->header_length << 2;
-//        Udp *udp = reinterpret_cast<Udp *>(reinterpret_cast<uint8_t *>(ip) + ip_bytes);
         // Access UDP payload (i.e., mDC data)
         be32_t *p = pkt->head_data<be32_t *>(sizeof(Ethernet) + ip_bytes + sizeof(Udp));
-//        std::cout << "SWITCH";
-//        std::cout << std::hex << static_cast<int>(p->value()) << std::endl;
-//        std::cout << std::hex << static_cast<int>(p->raw_value()) << std::endl;
-//        std::cout << sizeof(Ethernet) + ip_bytes + sizeof(Udp) << std::endl;
 
         // Data pkts
         uint8_t mode = (p->raw_value() & 0x00ff0000) >> 16;
-//        std::cout << std::hex << static_cast<int>(mode) << std::endl;
         if (mode == 0x00) {
             // If mode is 0x00, the data pkt needs to be forwarded to the active agent
             EmitPacket(ctx, pkt, active_agent_id_);
@@ -190,30 +195,26 @@ void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
             // Let's check the label
             uint8_t label = (p->raw_value() & 0xff000000) >> 24;
             int remaining_gate_count = numberOfSetBits_8(label);
-//            std::cout << "remaining_gate_count" << remaining_gate_count;
             // We actually shouldn't reach here
             if (remaining_gate_count == 0) {
                 DropPacket(ctx, pkt);
                 continue;
             }
 
-            for (uint8_t i=0; i < AWS_MAX_INTF_COUNT; i++) {
-                if((label_gates_[i] & label) == label_gates_[i]) {
-                    if(remaining_gate_count == 1) {
+            for (uint8_t i = 0; i < AWS_MAX_INTF_COUNT; i++) {
+                if ((label_gates_[i] & label) == label_gates_[i]) {
+                    if (remaining_gate_count == 1) {
                         Udp *udp = reinterpret_cast<Udp *>(reinterpret_cast<uint8_t *>(ip) + ip_bytes);
                         eth->dst_addr = agent_macs_[i];
                         ip->dst = agent_ips_[i];
 
                         eth->src_addr = switch_macs_[i];
                         ip->src = switch_ips_[i];
-                        ip-> id = be16_t(i+1); 
+                        ip->id = be16_t(i + 1);
                         ip->fragment_offset = be16_t(Ipv4::Flag::kDF);
-                        //ip->checksum = bess::utils::CalculateIpv4NoOptChecksum(*ip); 
-			// if(ip->ttl > 1)
-			//	ip->ttl -= 1;
-			udp->checksum = CalculateIpv4UdpChecksum(*ip, *udp);
-			uint16_t c = 0xD295;
-                        ip->checksum = c; // bess::utils::CalculateIpv4Checksum(*ip);
+                        udp->checksum = CalculateIpv4UdpChecksum(*ip, *udp);
+//                        uint16_t c = 0xD295;
+//                        ip->checksum = c; // bess::utils::CalculateIpv4Checksum(*ip);
                         ip->checksum = bess::utils::CalculateIpv4Checksum(*ip);
                         EmitPacket(ctx, pkt, i);
                         //break;
@@ -223,19 +224,16 @@ void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
                         if (new_pkt) {
                             Ethernet *new_eth = new_pkt->head_data<Ethernet *>();
                             Ipv4 *new_ip = reinterpret_cast<Ipv4 *>(new_eth + 1);
-			    Udp *new_udp = reinterpret_cast<Udp *>(reinterpret_cast<uint8_t *>(new_ip) + ip_bytes);
+                            Udp *new_udp = reinterpret_cast<Udp *>(reinterpret_cast<uint8_t *>(new_ip) + ip_bytes);
                             new_eth->dst_addr = agent_macs_[i];
                             new_ip->dst = agent_ips_[i];
 
                             new_eth->src_addr = switch_macs_[i];
                             new_ip->src = switch_ips_[i];
-                            new_ip->id = be16_t(i+1);
-			    ip->fragment_offset = be16_t(Ipv4::Flag::kDF);
-                            // new_ip->checksum = bess::utils::CalculateIpv4NoOptChecksum(*new_ip);
-			    //if(new_ip->ttl > 1)
-                            //    new_ip->ttl -= 1;
-			    new_udp->checksum = CalculateIpv4UdpChecksum(*new_ip, *new_udp);
-			    new_ip->checksum = bess::utils::CalculateIpv4Checksum(*new_ip);
+                            new_ip->id = be16_t(i + 1);
+                            ip->fragment_offset = be16_t(Ipv4::Flag::kDF);
+                            new_udp->checksum = CalculateIpv4UdpChecksum(*new_ip, *new_udp);
+                            new_ip->checksum = bess::utils::CalculateIpv4Checksum(*new_ip);
 
                             EmitPacket(ctx, new_pkt, i);
                         }

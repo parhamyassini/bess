@@ -1,0 +1,96 @@
+# Copyright (c) 2014-2017, The Regents of the University of California.
+# Copyright (c) 2016-2017, Nefeli Networks, Inc.
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+# list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+# this list of conditions and the following disclaimer in the documentation
+# and/or other materials provided with the distribution.
+#
+# * Neither the names of the copyright holders nor the names of their
+# contributors may be used to endorse or promote products derived from this
+# software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+
+import scapy.all as scapy
+
+LOCAL_PORT_NAME = 'p'
+LOCAL_SOCKET_PATH = '/tmp/mdc_dp_%s.sock' % LOCAL_PORT_NAME
+
+SWITCH_NICS = ['', '']
+SWITCH_MACS = ['0a:23:5e:9c:b1:5c', '0a:4e:2e:be:cb:52']
+AGENTS_MACS = ['0a:b2:17:d3:c2:d6', '0a:34:b9:2e:27:10']
+SWITCH_IPS = ['172.31.1.107', '172.31.8.238']
+AGENTS_IPS = ['172.31.7.206', '172.31.11.133']
+
+assert len(SWITCH_NICS) == len(SWITCH_MACS) == len(AGENTS_MACS) == len(SWITCH_IPS) == len(AGENTS_IPS), 'input lists need to have same number of elements'
+
+CONST_DATA_SIZE = 46
+
+num_cores = int($BESS_CORES!'20')
+data_pkt_size = int($BESS_DATA_PKT_SIZE!'1024')
+
+assert 64 <= data_pkt_size <= 1024, 'Data pkts needs to be in the range [64, 1024] in bytes'
+
+print('Core count = %d' % num_cores)
+print('Data pkt size = %d' % data_pkt_size)
+
+
+# Data pkt
+class MDCData(scapy.Packet):
+    name = 'MulticastDataCenterData '
+    fields_desc = [scapy.ShortField('addr', 0),
+                   scapy.XByteField('mode', 0),
+                   scapy.XByteField('label', 0)]
+
+
+# Data pkt template
+data_eth = scapy.Ether(src=SWITCH_MACS[0], dst=AGENTS_MACS[0], type=0x0800)
+data_ip = scapy.IP(src=SWITCH_IPS[0], dst=AGENTS_IPS[0])
+data_udp = scapy.UDP(sport=10001, dport=10002)
+unlabeled_data_mdc = MDCData(addr=0x1a1b, mode=0x0, label=0x0)
+data_payload = bytes(unlabeled_data_mdc) + b"\0" * (data_pkt_size - CONST_DATA_SIZE)
+unlabeled_data_pkt = data_eth / data_ip / data_udp / data_payload
+unlabeled_data_pkt_bytes = bytes(unlabeled_data_pkt)
+
+mdc_switch::AwsMdcSwitch(switch_macs=SWITCH_MACS,
+                         switch_ips=SWITCH_IPS,
+                         agents_macs=AGENTS_MACS,
+                         agents_ips=AGENTS_IPS)
+
+# Local port
+p = UnixSocketPort(name='p', path=LOCAL_SOCKET_PATH)
+PortInc(port='p') -> 7:mdc_switch
+mdc_switch:7 -> PortOut(port='p')
+
+# port1_inc0 -> 1:mdc_switch
+# mdc_switch:1 -> q2::Queue() -> port1_out0
+
+# Traffic generator: this generates data pkts unlike the MdcPktGen that generate ctrl pkts
+# Recommended: Use when the NIC has at least 2 ports, and when you want to generate traffic using BESS
+# Data rate depends on the capacity (Gbps), and data_pkt_size and Ethernet framing overhead (bytes)
+tgen_pkt_rate = 0.0005 * 1e9 / (8 * (data_pkt_size + 24))
+bess.add_tc('tgen', policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)})
+
+# Creates a source, and limits its pkt rate
+tgen_src::Source()
+tgen_src.attach_task('tgen')
+
+# Sends generated traffic on Port1
+tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> 6:mdc_switch
