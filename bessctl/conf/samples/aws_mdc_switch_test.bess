@@ -34,12 +34,14 @@ LOCAL_PORT_NAME = 'p'
 LOCAL_SOCKET_PATH = '/tmp/mdc_dp_%s.sock' % LOCAL_PORT_NAME
 
 SWITCH_NICS = ['', '']
+AGENTS_IDS = [0x01, 0x02]
 SWITCH_MACS = ['0a:23:5e:9c:b1:5c', '0a:4e:2e:be:cb:52']
 AGENTS_MACS = ['0a:b2:17:d3:c2:d6', '0a:34:b9:2e:27:10']
 SWITCH_IPS = ['172.31.1.107', '172.31.8.238']
 AGENTS_IPS = ['172.31.7.206', '172.31.11.133']
 
-assert len(SWITCH_NICS) == len(SWITCH_MACS) == len(AGENTS_MACS) == len(SWITCH_IPS) == len(AGENTS_IPS), 'input lists need to have same number of elements'
+assert len(SWITCH_NICS) == len(SWITCH_MACS) == len(AGENTS_MACS) == len(SWITCH_IPS) == len(
+    AGENTS_IPS), 'input lists need to have same number of elements'
 
 CONST_DATA_SIZE = 46
 
@@ -55,42 +57,75 @@ print('Data pkt size = %d' % data_pkt_size)
 # Data pkt
 class MDCData(scapy.Packet):
     name = 'MulticastDataCenterData '
-    fields_desc = [scapy.ShortField('addr', 0),
+    fields_desc = [scapy.XByteField('type', 0),
+                   scapy.ShortField('addr', 0),
                    scapy.XByteField('mode', 0),
-                   scapy.XByteField('label', 0)]
+                   scapy.XByteField('label1', 0),
+                   scapy.XByteField('label2', 0),
+                   scapy.XByteField('label3', 0)]
+
+# Ping pkt (a ctrl pkt)
+class MDCPing(scapy.Packet):
+    name = 'MulticastDataCenterPing '
+    fields_desc = [scapy.XByteField('type', 0),
+                   scapy.XByteField('agent', 0),
+                   scapy.XByteField('port', 0)]
 
 
 # Data pkt template
 data_eth = scapy.Ether(src=SWITCH_MACS[0], dst=AGENTS_MACS[0], type=0x0800)
 data_ip = scapy.IP(src=SWITCH_IPS[0], dst=AGENTS_IPS[0])
 data_udp = scapy.UDP(sport=10001, dport=10002)
-unlabeled_data_mdc = MDCData(addr=0x1a1b, mode=0x0, label=0x0)
+unlabeled_data_mdc = MDCData(type=0x0ff, addr=0x1a1b, mode=0x0, label1=0x0, label2=0x0, label3=0x0)
 data_payload = bytes(unlabeled_data_mdc) + b"\0" * (data_pkt_size - CONST_DATA_SIZE)
 unlabeled_data_pkt = data_eth / data_ip / data_udp / data_payload
 unlabeled_data_pkt_bytes = bytes(unlabeled_data_pkt)
+
+# Ping pkt template
+ping_01_eth = scapy.Ether(src=AGENTS_MACS[0], dst=SWITCH_MACS[0], type=0x0800)
+ping_01_ip = scapy.IP(src=AGENTS_IPS[0], dst=SWITCH_IPS[0])
+ping_01_udp = scapy.UDP(sport=10001, dport=10002)
+ping_01_layer = MDCPing(type=0xf0, agent=AGENTS_IDS[0], port=AGENTS_IDS[0])
+ping_01_pkt = ping_01_eth / ping_01_ip / ping_01_udp / ping_01_layer
+ping_01_pkt_bytes = bytes(ping_01_pkt)
 
 mdc_switch::AwsMdcSwitch(switch_macs=SWITCH_MACS,
                          switch_ips=SWITCH_IPS,
                          agents_macs=AGENTS_MACS,
                          agents_ips=AGENTS_IPS)
 
-# Local port
+# Control plane of switch
 p = UnixSocketPort(name='p', path=LOCAL_SOCKET_PATH)
 PortInc(port='p') -> 7:mdc_switch
 mdc_switch:7 -> PortOut(port='p')
+
+# Agent 1
+mdc_pkt_gen_01::AwsMdcPktGen(template=ping_01_pkt_bytes, pps=1e2)
+mdc_rec_01::AwsMdcReceiver(agent_id=AGENTS_IDS[0],
+                           switch_mac=SWITCH_MACS[0],
+                           agent_mac=AGENTS_MACS[0],
+                           switch_ip=SWITCH_IPS[0],
+                           agent_ip=AGENTS_IPS[0])
+# Adds (session address, label) tuples to the MdcReceiver module
+mdc_rec_01.add(entries=[{'addr': '1a:1b', 'label': 0x03}])
+
+mdc_switch:0 -> 0:mdc_rec_01
+mdc_rec_01:0 -> 0:mdc_switch
+mdc_rec_01:1 -> rec_01_mypkts::Sink()
+
+# Ping pkts
+q_01::Queue()
+mdc_pkt_gen_01 -> q_01 -> 2:mdc_rec_01
 
 # port1_inc0 -> 1:mdc_switch
 # mdc_switch:1 -> q2::Queue() -> port1_out0
 
 # Traffic generator: this generates data pkts unlike the MdcPktGen that generate ctrl pkts
-# Recommended: Use when the NIC has at least 2 ports, and when you want to generate traffic using BESS
 # Data rate depends on the capacity (Gbps), and data_pkt_size and Ethernet framing overhead (bytes)
 tgen_pkt_rate = 0.0005 * 1e9 / (8 * (data_pkt_size + 24))
 bess.add_tc('tgen', policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)})
-
 # Creates a source, and limits its pkt rate
 tgen_src::Source()
 tgen_src.attach_task('tgen')
-
 # Sends generated traffic on Port1
-tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> 6:mdc_switch
+tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> 1:mdc_rec_01

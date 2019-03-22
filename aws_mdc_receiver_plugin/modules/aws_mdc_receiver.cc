@@ -489,18 +489,12 @@ void AwsMdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
 
         // Data pkts
         mac_addr_t address = p->raw_value() & 0x0000ffff;
-//        std::cout << "Address" << std::endl;
-//        std::cout << std::hex << static_cast<int>(address) << std::endl;
         mdc_mode_t mode = (p->raw_value() & 0x00ff0000) >> 16;
-//            std::cout << std::hex << static_cast<int>(mode) << std::endl;
         if (mode == 0x00) {
             // If mode is 0x00, the data pkt needs to be labeled
             mdc_label_t out_label = 0x0a;
             int ret = aws_mdc_find(&mdc_table_, address, &out_label);
-//            std::cout << "Address" << std::endl;
 //            std::cout << std::hex << static_cast<int>(address) << std::endl;
-//            std::cout << std::hex << static_cast<int>(p->raw_value()) << std::endl;
-//            std::cout << ret << std::endl;
             if (ret != 0) {
                 out_label = 0x0a;
             }
@@ -524,21 +518,13 @@ void AwsMdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
             }
 
             // Label the pkt, make sure to remove the agent ID label from the final label
-//            *p = be32_t(((out_label & ~agent_id_) << 24) | (0xff << 16) | address);
-//            std::cout << "RECV - 1";
-//            std::cout << std::hex << static_cast<int>(p->value()) << std::endl;
-//            std::cout << std::hex << static_cast<int>(p->raw_value()) << std::endl;
-//            *p = be32_t(address << 16) | (be32_t(0xff) << 8) | be32_t(out_label & ~agent_id_);
             *p = *p | be32_t(0x0000ff00);
             *p = *p | be32_t(out_label & ~agent_id_);
-//            std::cout << "RECV - 2";
-//            std::cout << std::hex << static_cast<int>(p->value()) << std::endl;
-//            std::cout << std::hex << static_cast<int>(p->raw_value()) << std::endl;
-            eth->dst_addr = switch_mac_; //agent_mac_;
-            ip->dst = switch_ip_; //agent_ip_;
+            eth->dst_addr = switch_mac_;
+            ip->dst = switch_ip_;
 
-            eth->src_addr = agent_mac_; //switch_mac_;
-            ip->src = agent_ip_; //switch_ip_;
+            eth->src_addr = agent_mac_;
+            ip->src = agent_ip_;
 
             EmitPacket(ctx, pkt, 0);
         } else {
