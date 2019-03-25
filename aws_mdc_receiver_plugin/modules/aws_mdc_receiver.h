@@ -52,6 +52,7 @@ using bess::utils::Error;
 
 using bess::utils::be16_t;
 using bess::utils::be32_t;
+using bess::utils::be64_t;
 using bess::utils::Ethernet;
 using bess::utils::Arp;
 using bess::utils::Ipv4;
@@ -91,9 +92,11 @@ class AwsMdcReceiver final : public Module {
 public:
   static const Commands cmds;
   static const gate_idx_t kNumOGates = 2;
+  static const gate_idx_t kNumIGates = 3;
 
-  AwsMdcReceiver() : Module(), agent_id_(), mdc_table_(),
-                     switch_ip_(), switch_mac_(), agent_ip_(), agent_mac_() {
+  AwsMdcReceiver() : Module(), agent_id_(), agent_label_(), mdc_table_(),
+                     switch_ip_(), switch_mac_(), agent_ip_(), agent_mac_(),
+                     emit_ping_pkt_(true), gen_ping_pkts_count_(0) {
       max_allowed_workers_ = Worker::kMaxWorkers;
   }
 
@@ -106,7 +109,9 @@ public:
   CommandResponse CommandClear(const bess::pb::EmptyArg &arg);
 
 private:
-    mdc_label_t agent_id_;
+    gate_idx_t agent_id_;
+    mdc_label_t agent_label_;
+
     struct aws_mdc_table mdc_table_;
 
     be32_t switch_ip_;
@@ -114,6 +119,9 @@ private:
 
     be32_t agent_ip_;
     Ethernet::Address agent_mac_;
+
+    bool emit_ping_pkt_;
+    uint64_t gen_ping_pkts_count_;
 };
 
 #endif // BESS_MODULES_LABELLOOKUP_H_

@@ -64,10 +64,11 @@ message AwsMdcReceiverCommandAddArg {
  */
 message AwsMdcReceiverArg {
   uint32 agent_id = 1; /// Agent ID
-  string switch_ip = 2;
-  string switch_mac = 3;
-  string agent_ip = 4; // The IP
-  string agent_mac = 5; /// The MAC address
+  uint32 agent_label = 2; /// Agent Label
+  string switch_ip = 3;
+  string switch_mac = 4;
+  string agent_ip = 5; // The IP
+  string agent_mac = 6; /// The MAC address
 }
 
 

@@ -91,7 +91,7 @@ static uint32_t aws_mdc_hash_to_index(uint32_t hash, uint32_t size) {
 }
 
 static uint32_t aws_mdc_alt_index(uint32_t hash, uint32_t size_power,
-                              uint32_t index) {
+                                  uint32_t index) {
     uint64_t tag = (hash >> size_power) + 1;
     tag = tag * 0x5bd1e995;
     return (index ^ tag) & ((0x1lu << (size_power - 1)) - 1);
@@ -139,7 +139,7 @@ static inline int aws_find_index(uint64_t addr, uint64_t *table, const uint64_t)
 }
 
 static inline int aws_mdc_find(struct aws_mdc_table *mdc_tbl, uint64_t addr,
-                           mdc_label_t *label) {
+                               mdc_label_t *label) {
     size_t i;
     int ret = -ENOENT;
     uint32_t hash, idx1, offset;
@@ -231,7 +231,7 @@ static inline int aws_mdc_find(struct aws_mdc_table *mdc_tbl, uint64_t addr,
 //}
 
 static int aws_mdc_find_slot(struct aws_mdc_table *mdc_tbl, mac_addr_t addr, uint32_t *idx,
-                         uint32_t *bucket) {
+                             uint32_t *bucket) {
     size_t i, j;
     uint32_t hash;
     uint32_t idx1, idx_v1, idx_v2;
@@ -284,7 +284,7 @@ static int aws_mdc_find_slot(struct aws_mdc_table *mdc_tbl, mac_addr_t addr, uin
 }
 
 static int aws_mdc_add_entry(struct aws_mdc_table *mdc_tbl, mac_addr_t addr,
-                         mdc_label_t label) {
+                             mdc_label_t label) {
     uint32_t offset;
     uint32_t index;
     uint32_t bucket;
@@ -360,7 +360,7 @@ static int aws_parse_mac_addr(const char *str, char *addr) {
 
 const Commands AwsMdcReceiver::cmds = {
         {"add",   "AwsMdcReceiverCommandAddArg",
-                              MODULE_CMD_FUNC(&AwsMdcReceiver::CommandAdd), Command::THREAD_UNSAFE},
+                              MODULE_CMD_FUNC(&AwsMdcReceiver::CommandAdd),   Command::THREAD_UNSAFE},
         {"clear", "EmptyArg", MODULE_CMD_FUNC(&AwsMdcReceiver::CommandClear), Command::THREAD_UNSAFE},
 };
 
@@ -371,26 +371,31 @@ AwsMdcReceiver::Init(const sample::aws_mdc_receiver::pb::AwsMdcReceiverArg &arg)
     int bucket = AWS_MDC_MAX_BUCKET_SIZE;
 
     // Parses Agent ID
-    if(arg.agent_id() <= 0) {
-        return CommandFailure(-1, "Agent ID has to be a positive integer");
-    }
+//    if (arg.agent_id() < 0) {
+//        return CommandFailure(-1, "Agent ID has to be zero or a +ve integer");
+//    }
     agent_id_ = arg.agent_id();
 
-    const std::string & switch_mac_str = arg.switch_mac();
-    const std::string & agent_mac_str = arg.agent_mac();
-    const std::string & switch_ip_str = arg.switch_ip();
-    const std::string & agent_ip_str = arg.agent_ip();
+    if (arg.agent_label() <= 0) {
+        return CommandFailure(-1, "Agent Label has to be a +ve integer");
+    }
+    agent_label_ = arg.agent_label();
+
+    const std::string &switch_mac_str = arg.switch_mac();
+    const std::string &agent_mac_str = arg.agent_mac();
+    const std::string &switch_ip_str = arg.switch_ip();
+    const std::string &agent_ip_str = arg.agent_ip();
 
     switch_mac_ = Ethernet::Address(switch_mac_str);
     agent_mac_ = Ethernet::Address(agent_mac_str);
 
     bool ip_parsed = bess::utils::ParseIpv4Address(switch_ip_str, &switch_ip_);
-    if(!ip_parsed) {
+    if (!ip_parsed) {
         return CommandFailure(EINVAL, "cannot parse switch IP %s", switch_ip_str.c_str());
     }
 
     ip_parsed = bess::utils::ParseIpv4Address(agent_ip_str, &agent_ip_);
-    if(!ip_parsed) {
+    if (!ip_parsed) {
         return CommandFailure(EINVAL, "cannot parse agent IP %s", agent_ip_str.c_str());
     }
 
@@ -449,11 +454,16 @@ CommandResponse AwsMdcReceiver::CommandClear(const bess::pb::EmptyArg &) {
 
 void AwsMdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
     int cnt = batch->cnt();
-
     for (int i = 0; i < cnt; i++) {
+//        gate_idx_t i_gate = ctx->current_igate;
+        // i_gate = 0: external
+        // i_gate = 1: internal
+        // i_gate = 2: generated ping pkts
+
         bess::Packet *pkt = batch->pkts()[i];
         Ethernet *eth = pkt->head_data<Ethernet *>();
 
+        // If it's an ARP pkt
         if (eth->ether_type != be16_t(Ethernet::Type::kIpv4)) {
             if (eth->ether_type == be16_t(Ethernet::Type::kArp)) {
                 Arp *arp = reinterpret_cast<Arp *>(eth + 1);
@@ -478,6 +488,7 @@ void AwsMdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
         }
 
         Ipv4 *ip = reinterpret_cast<Ipv4 *>(eth + 1);
+        // If it is not a UDP pkt
         if (ip->protocol != Ipv4::Proto::kUdp) {
             DropPacket(ctx, pkt);
             continue;
@@ -485,52 +496,75 @@ void AwsMdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
 
         int ip_bytes = ip->header_length << 2;
         // Access UDP payload (i.e., mDC data)
-        be32_t *p = pkt->head_data<be32_t *>(sizeof(Ethernet) + ip_bytes + sizeof(Udp));
+        be64_t *p = pkt->head_data<be64_t *>(sizeof(Ethernet) + ip_bytes + sizeof(Udp));
 
-        // Data pkts
-        mac_addr_t address = p->raw_value() & 0x0000ffff;
-        mdc_mode_t mode = (p->raw_value() & 0x00ff0000) >> 16;
-        if (mode == 0x00) {
-            // If mode is 0x00, the data pkt needs to be labeled
-            mdc_label_t out_label = 0x0a;
-            int ret = aws_mdc_find(&mdc_table_, address, &out_label);
-//            std::cout << std::hex << static_cast<int>(address) << std::endl;
-            if (ret != 0) {
-                out_label = 0x0a;
-            }
+        uint8_t mdc_type = p->raw_value() & 0x00000000000000ff;
+        // A data packet
+        if (mdc_type == 0xff) {
+            // did it come from internal or external port
 
-            bool agent_is_only_recv = (~agent_id_ & ~out_label) == ~agent_id_;
-
-            // If the Agent host has a receiver, copy the pkt and send it to Gate 1.
-            if((agent_id_ & out_label) == agent_id_) {
-                if(!agent_is_only_recv) {
-                    bess::Packet *new_pkt = bess::Packet::copy(pkt);
-                    if (new_pkt) {
-                        EmitPacket(ctx, new_pkt, 1);
-                    }
-                } else {
-                    EmitPacket(ctx, pkt, 1);
+            // Data pkts
+            mac_addr_t address = (p->raw_value() & 0x0000000000ffff00) >> 8;
+            mdc_mode_t mode = (p->raw_value() & 0x0000ff0000000000) >> 40;
+            if (mode == 0x00) {
+                // If mode is 0x00, the data pkt needs to be labeled
+                mdc_label_t out_label = 0x0a;
+                int ret = aws_mdc_find(&mdc_table_, address, &out_label);
+                if (ret != 0) {
+                    out_label = 0x0a;
                 }
+
+                bool agent_is_only_recv = (~agent_label_ & ~out_label) == ~agent_label_;
+
+                // If the Agent host has a receiver, copy the pkt and send it to Gate 1.
+                if ((agent_label_ & out_label) == agent_label_) {
+                    if (!agent_is_only_recv) {
+                        bess::Packet *new_pkt = bess::Packet::copy(pkt);
+                        if (new_pkt) {
+                            EmitPacket(ctx, new_pkt, 1);
+                        }
+                    } else {
+                        EmitPacket(ctx, pkt, 1);
+                    }
+                }
+
+                if (agent_is_only_recv) {
+                    continue;
+                }
+
+                // Label the pkt, make sure to remove the agent ID label from the final label
+                *p = *p | be64_t(0x0000ff0000000000);
+                *p = *p | (be64_t(out_label & ~agent_label_) << 48);
+                eth->dst_addr = switch_mac_;
+                ip->dst = switch_ip_;
+
+                eth->src_addr = agent_mac_;
+                ip->src = agent_ip_;
+
+                EmitPacket(ctx, pkt, 0);
+            } else {
+                EmitPacket(ctx, pkt, 1);
             }
-
-            if (agent_is_only_recv) {
-                continue;
-            }
-
-            // Label the pkt, make sure to remove the agent ID label from the final label
-            *p = *p | be32_t(0x0000ff00);
-            *p = *p | be32_t(out_label & ~agent_id_);
-            eth->dst_addr = switch_mac_;
-            ip->dst = switch_ip_;
-
-            eth->src_addr = agent_mac_;
-            ip->src = agent_ip_;
-
-            EmitPacket(ctx, pkt, 0);
         } else {
-            EmitPacket(ctx, pkt, 1);
+            // A control pkt
+            if (mdc_type == 0xf1) {
+                // A pong pkt
+                emit_ping_pkt_ = true;
+            } else if (mdc_type == 0xf0) {
+                // A ping pkt coming from generator
+                // We need to make sure the mDC Agent still sends pkts even if ToR had failed, in case the ToR comes back!
+                // "100" represents the rate at which the Agent resends the ping pkts if ToR fails
+                // This value needs to be adaptive or configured
+                if (emit_ping_pkt_ || gen_ping_pkts_count_ == 100) {
+                    EmitPacket(ctx, pkt, 0);
+                    gen_ping_pkts_count_ = 0;
+                    emit_ping_pkt_ = false;
+                }
+                gen_ping_pkts_count_ += 1;
+            } else if (mdc_type == 0xf2) {
+                // sync-state pkt
+            }
         }
-
     }
 }
 

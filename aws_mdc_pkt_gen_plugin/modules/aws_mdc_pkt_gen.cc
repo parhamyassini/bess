@@ -37,7 +37,7 @@ const Commands AwsMdcPktGen::cmds = {
 };
 
 CommandResponse
-AwsMdcPktGen::CommandUpdate(const sample::mdc_pkt_gen::pb::MdcPktGenArg &arg) {
+AwsMdcPktGen::CommandUpdate(const sample::aws_mdc_pkt_gen::pb::AwsMdcPktGenArg &arg) {
     return ProcessUpdatableArgs(arg);
 }
 
@@ -97,7 +97,7 @@ AwsMdcPktGen::Init(const sample::aws_mdc_pkt_gen::pb::AwsMdcPktGenArg &arg) {
     return CommandSuccess();
 }
 
-void MdcPktGen::DeInit() {
+void AwsMdcPktGen::DeInit() {
 }
 
 bess::Packet *AwsMdcPktGen::FillMdcPacket() {

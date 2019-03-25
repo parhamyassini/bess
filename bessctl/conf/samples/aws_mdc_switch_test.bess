@@ -28,13 +28,15 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+import os
 import scapy.all as scapy
 
 LOCAL_PORT_NAME = 'p'
 LOCAL_SOCKET_PATH = '/tmp/mdc_dp_%s.sock' % LOCAL_PORT_NAME
 
 SWITCH_NICS = ['', '']
-AGENTS_IDS = [0x01, 0x02]
+AGENTS_IDS = [0, 1]
+AGENTS_LABELS = [0x01, 0x02]
 SWITCH_MACS = ['0a:23:5e:9c:b1:5c', '0a:4e:2e:be:cb:52']
 AGENTS_MACS = ['0a:b2:17:d3:c2:d6', '0a:34:b9:2e:27:10']
 SWITCH_IPS = ['172.31.1.107', '172.31.8.238']
@@ -52,6 +54,8 @@ assert 64 <= data_pkt_size <= 1024, 'Data pkts needs to be in the range [64, 102
 
 print('Core count = %d' % num_cores)
 print('Data pkt size = %d' % data_pkt_size)
+
+os.unlink(LOCAL_SOCKET_PATH)
 
 
 # Data pkt
@@ -89,6 +93,14 @@ ping_01_layer = MDCPing(type=0xf0, agent=AGENTS_IDS[0], port=AGENTS_IDS[0])
 ping_01_pkt = ping_01_eth / ping_01_ip / ping_01_udp / ping_01_layer
 ping_01_pkt_bytes = bytes(ping_01_pkt)
 
+# Ping pkt template
+ping_02_eth = scapy.Ether(src=AGENTS_MACS[1], dst=SWITCH_MACS[1], type=0x0800)
+ping_02_ip = scapy.IP(src=AGENTS_IPS[1], dst=SWITCH_IPS[1])
+ping_02_udp = scapy.UDP(sport=10001, dport=10002)
+ping_02_layer = MDCPing(type=0xf0, agent=AGENTS_IDS[1], port=AGENTS_IDS[1])
+ping_02_pkt = ping_02_eth / ping_02_ip / ping_02_udp / ping_02_layer
+ping_02_pkt_bytes = bytes(ping_02_pkt)
+
 mdc_switch::AwsMdcSwitch(switch_macs=SWITCH_MACS,
                          switch_ips=SWITCH_IPS,
                          agents_macs=AGENTS_MACS,
@@ -96,12 +108,13 @@ mdc_switch::AwsMdcSwitch(switch_macs=SWITCH_MACS,
 
 # Control plane of switch
 p = UnixSocketPort(name='p', path=LOCAL_SOCKET_PATH)
-PortInc(port='p') -> 7:mdc_switch
-mdc_switch:7 -> PortOut(port='p')
+PortInc(port='p') -> 8:mdc_switch
+mdc_switch:8 -> PortOut(port='p')
 
 # Agent 1
 mdc_pkt_gen_01::AwsMdcPktGen(template=ping_01_pkt_bytes, pps=1e2)
 mdc_rec_01::AwsMdcReceiver(agent_id=AGENTS_IDS[0],
+                           agent_label=AGENTS_LABELS[0],
                            switch_mac=SWITCH_MACS[0],
                            agent_mac=AGENTS_MACS[0],
                            switch_ip=SWITCH_IPS[0],
@@ -117,15 +130,36 @@ mdc_rec_01:1 -> rec_01_mypkts::Sink()
 q_01::Queue()
 mdc_pkt_gen_01 -> q_01 -> 2:mdc_rec_01
 
+
+
+# Agent 2
+mdc_pkt_gen_02::AwsMdcPktGen(template=ping_02_pkt_bytes, pps=1e2)
+mdc_rec_02::AwsMdcReceiver(agent_id=AGENTS_IDS[1],
+                           agent_label=AGENTS_LABELS[1],
+                           switch_mac=SWITCH_MACS[1],
+                           agent_mac=AGENTS_MACS[1],
+                           switch_ip=SWITCH_IPS[1],
+                           agent_ip=AGENTS_IPS[1])
+# Adds (session address, label) tuples to the MdcReceiver module
+mdc_rec_02.add(entries=[{'addr': '1a:1b', 'label': 0x03}])
+
+mdc_switch:1 -> 0:mdc_rec_02
+mdc_rec_02:0 -> 1:mdc_switch
+mdc_rec_02:1 -> rec_02_mypkts::Sink()
+
+# Ping pkts
+q_02::Queue()
+mdc_pkt_gen_02 -> q_02 -> 2:mdc_rec_02
+
 # port1_inc0 -> 1:mdc_switch
 # mdc_switch:1 -> q2::Queue() -> port1_out0
 
-# Traffic generator: this generates data pkts unlike the MdcPktGen that generate ctrl pkts
-# Data rate depends on the capacity (Gbps), and data_pkt_size and Ethernet framing overhead (bytes)
-tgen_pkt_rate = 0.0005 * 1e9 / (8 * (data_pkt_size + 24))
-bess.add_tc('tgen', policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)})
-# Creates a source, and limits its pkt rate
-tgen_src::Source()
-tgen_src.attach_task('tgen')
-# Sends generated traffic on Port1
-tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> 1:mdc_rec_01
+# # Traffic generator: this generates data pkts unlike the MdcPktGen that generate ctrl pkts
+# # Data rate depends on the capacity (Gbps), and data_pkt_size and Ethernet framing overhead (bytes)
+# tgen_pkt_rate = 0.0005 * 1e9 / (8 * (data_pkt_size + 24))
+# bess.add_tc('tgen', policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)})
+# # Creates a source, and limits its pkt rate
+# tgen_src::Source()
+# tgen_src.attach_task('tgen')
+# # Sends generated traffic on Port1
+# tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> 1:mdc_rec_01

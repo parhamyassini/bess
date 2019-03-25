@@ -60,8 +60,8 @@ using bess::utils::Udp;
 class AwsMdcSwitch final : public Module {
 public:
   static const Commands cmds;
-  static const gate_idx_t kNumIGates = AWS_MAX_INTF_COUNT;
-  static const gate_idx_t kNumOGates = AWS_MAX_INTF_COUNT;
+  static const gate_idx_t kNumIGates = 1 + AWS_MAX_INTF_COUNT;
+  static const gate_idx_t kNumOGates = 1 + AWS_MAX_INTF_COUNT;
 
   AwsMdcSwitch() : Module(),
                    active_agent_id_(0), label_gates_(),
