@@ -229,7 +229,10 @@ void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
             }
         } else {
             // A control pkt
-            if (mdc_type == 0xf1) {
+            if (mdc_type == 0x00) {
+                // set-active-agent pkt
+            }
+            else if (mdc_type == 0xf1) {
                 // A pong pkt
                 // read Agent ID
                 uint8_t agent_id = (p->raw_value() & 0x000000000000ff00) >> 8;
@@ -242,9 +245,10 @@ void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
                 bess::utils::be32_t tmp_ip = ip->src;
                 ip->src = ip->dst;
                 ip->dst = tmp_ip;
-
+//                std::cout << "PONG" << agent_id;
 //                udp->checksum = CalculateIpv4UdpChecksum(*ip, *udp);
                 ip->checksum = bess::utils::CalculateIpv4Checksum(*ip);
+
                 EmitPacket(ctx, pkt, (gate_idx_t) agent_id);
             } else if (mdc_type == 0xf0) {
                 // A ping pkt coming from generator
@@ -252,7 +256,43 @@ void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
                 EmitPacket(ctx, pkt, 8);
             } else if (mdc_type == 0xf2) {
                 // sync-state pkt
-                // Check the Agent ID
+
+                for (uint8_t i = 0; i < AWS_MAX_INTF_COUNT; i++) {
+                    if (i == AWS_MAX_INTF_COUNT - 1) {
+                        Udp *udp = reinterpret_cast<Udp *>(reinterpret_cast<uint8_t *>(ip) + ip_bytes);
+                        eth->dst_addr = agent_macs_[i];
+                        ip->dst = agent_ips_[i];
+
+                        eth->src_addr = switch_macs_[i];
+                        ip->src = switch_ips_[i];
+                        ip->id = be16_t(i + 1);
+                        ip->fragment_offset = be16_t(Ipv4::Flag::kDF);
+                        udp->checksum = CalculateIpv4UdpChecksum(*ip, *udp);
+                        ip->checksum = bess::utils::CalculateIpv4Checksum(*ip);
+                        EmitPacket(ctx, pkt, i);
+                    } else {
+                        // copy the pkt only if we have more than one gate to duplicate pkt to
+                        bess::Packet *new_pkt = bess::Packet::copy(pkt);
+                        if (new_pkt) {
+                            Ethernet *new_eth = new_pkt->head_data<Ethernet *>();
+                            Ipv4 *new_ip = reinterpret_cast<Ipv4 *>(new_eth + 1);
+                            Udp *new_udp = reinterpret_cast<Udp *>(reinterpret_cast<uint8_t *>(new_ip) + ip_bytes);
+                            new_eth->dst_addr = agent_macs_[i];
+                            new_ip->dst = agent_ips_[i];
+
+                            new_eth->src_addr = switch_macs_[i];
+                            new_ip->src = switch_ips_[i];
+                            new_ip->id = be16_t(i + 1);
+                            ip->fragment_offset = be16_t(Ipv4::Flag::kDF);
+                            new_udp->checksum = CalculateIpv4UdpChecksum(*new_ip, *new_udp);
+                            new_ip->checksum = bess::utils::CalculateIpv4Checksum(*new_ip);
+                            EmitPacket(ctx, new_pkt, i);
+                        }
+                    }
+                }
+            } else if (mdc_type == 0xf3) {
+                // sync-state-done pkt
+                EmitPacket(ctx, pkt, 8);
             }
         }
     }

@@ -194,6 +194,62 @@ static inline int aws_mdc_find(struct aws_mdc_table *mdc_tbl, uint64_t addr,
     return ret;
 }
 
+static inline int aws_mdc_mod_entry(struct aws_mdc_table *mdc_tbl, uint64_t addr,
+                               mdc_label_t new_label) {
+    size_t i;
+    int ret = -ENOENT;
+    uint32_t hash, idx1, offset;
+    struct aws_mdc_entry *tbl = mdc_tbl->table;
+
+    hash = aws_mdc_hash(addr);
+    idx1 = aws_mdc_hash_to_index(hash, mdc_tbl->size);
+
+    offset = aws_mdc_ib_to_offset(mdc_tbl, idx1, 0);
+
+    if (mdc_tbl->bucket == 4) {
+        int tmp1 = aws_find_index(addr, &tbl[offset].entry, mdc_tbl->count);
+        if (tmp1) {
+            tbl[offset + tmp1 - 1].label = new_label;
+            return 0;
+        }
+
+        idx1 = aws_mdc_alt_index(hash, mdc_tbl->size_power, idx1);
+        offset = aws_mdc_ib_to_offset(mdc_tbl, idx1, 0);
+
+        int tmp2 = aws_find_index(addr, &tbl[offset].entry, mdc_tbl->count);
+
+        if (tmp2) {
+            tbl[offset + tmp2 - 1].label = new_label;
+            return 0;
+        }
+
+    } else {
+        /* search buckets for first index */
+        for (i = 0; i < mdc_tbl->bucket; i++) {
+            if (tbl[offset].occupied && addr == tbl[offset].addr) {
+                tbl[offset].label = new_label;
+                return 0;
+            }
+
+            offset++;
+        }
+
+        idx1 = aws_mdc_alt_index(hash, mdc_tbl->size_power, idx1);
+        offset = aws_mdc_ib_to_offset(mdc_tbl, idx1, 0);
+        /* search buckets for alternate index */
+        for (i = 0; i < mdc_tbl->bucket; i++) {
+            if (tbl[offset].occupied && addr == tbl[offset].addr) {
+                tbl[offset].label = new_label;
+                return 0;
+            }
+
+            offset++;
+        }
+    }
+
+    return ret;
+}
+
 
 //static int mdc_find_offset(struct mdc_table *mdc_tbl, uint64_t addr,
 //                    uint32_t *offset_out) {
@@ -379,7 +435,7 @@ AwsMdcReceiver::Init(const sample::aws_mdc_receiver::pb::AwsMdcReceiverArg &arg)
     if (arg.agent_label() <= 0) {
         return CommandFailure(-1, "Agent Label has to be a +ve integer");
     }
-    agent_label_ = arg.agent_label();
+    agent_label_ = arg.agent_label() << 24;
 
     const std::string &switch_mac_str = arg.switch_mac();
     const std::string &agent_mac_str = arg.agent_mac();
@@ -435,7 +491,7 @@ CommandResponse AwsMdcReceiver::CommandAdd(
         }
 
         int r = aws_mdc_add_entry(&mdc_table_, aws_mdc_addr_to_u64(addr), label);
-//        std::cout << r << str_addr << aws_mdc_addr_to_u64(addr) << label ;
+//        std::cout << r << str_addr << aws_mdc_addr_to_u64(addr) << label;
         if (r == -EEXIST) {
             return CommandFailure(EEXIST, "MAC address '%s' already exist", str_addr);
         } else if (r == -ENOMEM) {
@@ -507,41 +563,59 @@ void AwsMdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
             mac_addr_t address = (p->raw_value() & 0x0000000000ffff00) >> 8;
             mdc_mode_t mode = (p->raw_value() & 0x0000ff0000000000) >> 40;
             if (mode == 0x00) {
-                // If mode is 0x00, the data pkt needs to be labeled
-                mdc_label_t out_label = 0x0a;
-                int ret = aws_mdc_find(&mdc_table_, address, &out_label);
-                if (ret != 0) {
-                    out_label = 0x0a;
-                }
-
-                bool agent_is_only_recv = (~agent_label_ & ~out_label) == ~agent_label_;
-
-                // If the Agent host has a receiver, copy the pkt and send it to Gate 1.
-                if ((agent_label_ & out_label) == agent_label_) {
-                    if (!agent_is_only_recv) {
-                        bess::Packet *new_pkt = bess::Packet::copy(pkt);
-                        if (new_pkt) {
-                            EmitPacket(ctx, new_pkt, 1);
-                        }
-                    } else {
-                        EmitPacket(ctx, pkt, 1);
+//                if (ctx->current_igate == 1) {
+                    // If mode is 0x00, the data pkt needs to be labeled
+                    mdc_label_t out_label = 0x00;
+                    int ret = aws_mdc_find(&mdc_table_, address, &out_label);
+                    if (ret != 0) {
+                        out_label = 0x00;
                     }
-                }
 
-                if (agent_is_only_recv) {
-                    continue;
-                }
+                    bool agent_is_only_recv = (~agent_label_ & ~out_label) == ~agent_label_;
 
-                // Label the pkt, make sure to remove the agent ID label from the final label
-                *p = *p | be64_t(0x0000ff0000000000);
-                *p = *p | (be64_t(out_label & ~agent_label_) << 48);
-                eth->dst_addr = switch_mac_;
-                ip->dst = switch_ip_;
+                    // If the Agent host has a receiver, copy the pkt and send it to Gate 1.
+                    if ((agent_label_ & out_label) == agent_label_) {
+                        if (!agent_is_only_recv) {
+                            bess::Packet *new_pkt = bess::Packet::copy(pkt);
+                            if (new_pkt) {
+                                EmitPacket(ctx, new_pkt, 1);
+                            }
+                        } else {
+                            EmitPacket(ctx, pkt, 1);
+                        }
+                    }
 
-                eth->src_addr = agent_mac_;
-                ip->src = agent_ip_;
+                    if (agent_is_only_recv) {
+                        continue;
+                    }
 
-                EmitPacket(ctx, pkt, 0);
+//                    std::cout << "gate" << ctx->current_igate;
+//                    std::cout << "agent label" << agent_label_;
+//                    std::cout << "LABEL" << std::hex << out_label;
+//                    std::cout << "ADDR" << address;
+//                    std::cout << std::hex << address;
+//                    std::cout << "BEFORE";
+//                    std::cout << std::hex << p->raw_value();
+
+                    // Label the pkt, make sure to remove the agent ID label from the final label
+
+                    *p = *p | (be64_t(out_label & ~agent_label_) >> 16);
+//                    std::cout << "AFTER1";
+//                    std::cout << std::hex << *p;
+                    *p = *p | be64_t(0x0000000000ff0000);
+
+//                    std::cout << "AFTER2";
+//                    std::cout << std::hex << p->raw_value();
+
+
+                    eth->dst_addr = switch_mac_;
+                    ip->dst = switch_ip_;
+
+                    eth->src_addr = agent_mac_;
+                    ip->src = agent_ip_;
+
+                    EmitPacket(ctx, pkt, 0);
+//                }
             } else {
                 EmitPacket(ctx, pkt, 1);
             }
@@ -563,6 +637,27 @@ void AwsMdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
                 gen_ping_pkts_count_ += 1;
             } else if (mdc_type == 0xf2) {
                 // sync-state pkt
+                int ret = -1;
+                mdc_label_t tmp_label;
+                mac_addr_t address = (p->raw_value() & 0x0000000000ffff00) >> 8;
+                mdc_label_t new_label = (p->raw_value() & 0x00ffffffff000000) >> 24;
+
+                // if the session is already stored, modify it. Else, add it to the table.
+                if (aws_mdc_find(&mdc_table_, address, &tmp_label) == 0) {
+                    ret = aws_mdc_mod_entry(&mdc_table_, address, new_label);
+                } else {
+                    ret = aws_mdc_add_entry(&mdc_table_, address, new_label);
+                }
+
+                if (ret == 0) {
+                    // send the pkt back to the switch
+                    // set the label to 0x00000000
+                    *p = *p & be64_t(0xff00000000ffffff);
+                    // set the mdc_type to 0xf3
+                    *p = *p | be64_t(0x00000000000000f3);
+                    // set the current Agent ID
+                    *p = *p | (be64_t(agent_id_) >> 24);
+                }
             }
         }
     }

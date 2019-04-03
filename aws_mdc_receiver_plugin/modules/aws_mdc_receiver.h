@@ -66,13 +66,13 @@ using bess::utils::Udp;
 
 typedef uint16_t mac_addr_t;
 typedef uint8_t mdc_mode_t;
-typedef uint8_t mdc_label_t;
+typedef uint32_t mdc_label_t;
 
 struct alignas(32) aws_mdc_entry {
     union {
         struct {
             uint64_t addr : 48;
-            uint64_t label : 24;
+            uint64_t label : 32; // 24
             uint64_t occupied : 1;
         };
         uint64_t entry;

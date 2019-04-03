@@ -36,6 +36,7 @@ LOCAL_SOCKET_PATH = '/tmp/mdc_dp_%s.sock' % LOCAL_PORT_NAME
 
 SWITCH_NICS = ['', '']
 AGENTS_IDS = [0, 1]
+# 1 byte only
 AGENTS_LABELS = [0x01, 0x02]
 SWITCH_MACS = ['0a:23:5e:9c:b1:5c', '0a:4e:2e:be:cb:52']
 AGENTS_MACS = ['0a:b2:17:d3:c2:d6', '0a:34:b9:2e:27:10']
@@ -55,7 +56,8 @@ assert 64 <= data_pkt_size <= 1024, 'Data pkts needs to be in the range [64, 102
 print('Core count = %d' % num_cores)
 print('Data pkt size = %d' % data_pkt_size)
 
-os.unlink(LOCAL_SOCKET_PATH)
+if os.path.isfile(LOCAL_SOCKET_PATH):
+    os.unlink(LOCAL_SOCKET_PATH)
 
 
 # Data pkt
@@ -63,10 +65,11 @@ class MDCData(scapy.Packet):
     name = 'MulticastDataCenterData '
     fields_desc = [scapy.XByteField('type', 0),
                    scapy.ShortField('addr', 0),
+                   scapy.XByteField('label1', 0), # ToR -> Agg
+                   scapy.XByteField('label2', 0), # Agg -> ToR
                    scapy.XByteField('mode', 0),
-                   scapy.XByteField('label1', 0),
-                   scapy.XByteField('label2', 0),
-                   scapy.XByteField('label3', 0)]
+                   scapy.XByteField('label3', 0), # ToR -> Host
+                   ]
 
 # Ping pkt (a ctrl pkt)
 class MDCPing(scapy.Packet):
@@ -80,7 +83,7 @@ class MDCPing(scapy.Packet):
 data_eth = scapy.Ether(src=SWITCH_MACS[0], dst=AGENTS_MACS[0], type=0x0800)
 data_ip = scapy.IP(src=SWITCH_IPS[0], dst=AGENTS_IPS[0])
 data_udp = scapy.UDP(sport=10001, dport=10002)
-unlabeled_data_mdc = MDCData(type=0x0ff, addr=0x1a1b, mode=0x0, label1=0x0, label2=0x0, label3=0x0)
+unlabeled_data_mdc = MDCData(type=0xff, addr=0x1a1b, mode=0x0, label1=0x0, label2=0x0, label3=0x0)
 data_payload = bytes(unlabeled_data_mdc) + b"\0" * (data_pkt_size - CONST_DATA_SIZE)
 unlabeled_data_pkt = data_eth / data_ip / data_udp / data_payload
 unlabeled_data_pkt_bytes = bytes(unlabeled_data_pkt)
@@ -120,19 +123,19 @@ mdc_rec_01::AwsMdcReceiver(agent_id=AGENTS_IDS[0],
                            switch_ip=SWITCH_IPS[0],
                            agent_ip=AGENTS_IPS[0])
 # Adds (session address, label) tuples to the MdcReceiver module
-mdc_rec_01.add(entries=[{'addr': '1a:1b', 'label': 0x03}])
+mdc_rec_01.add(entries=[{'addr': '1a:1b', 'label': 0x03000000}])
 
 mdc_switch:0 -> 0:mdc_rec_01
 mdc_rec_01:0 -> 0:mdc_switch
 mdc_rec_01:1 -> rec_01_mypkts::Sink()
 
 # Ping pkts
-q_01::Queue()
-mdc_pkt_gen_01 -> q_01 -> 2:mdc_rec_01
+# q_01::Queue()
+# mdc_pkt_gen_01 -> q_01 -> 2:mdc_rec_01
 
 
 
-# Agent 2
+# # Agent 2
 mdc_pkt_gen_02::AwsMdcPktGen(template=ping_02_pkt_bytes, pps=1e2)
 mdc_rec_02::AwsMdcReceiver(agent_id=AGENTS_IDS[1],
                            agent_label=AGENTS_LABELS[1],
@@ -141,25 +144,25 @@ mdc_rec_02::AwsMdcReceiver(agent_id=AGENTS_IDS[1],
                            switch_ip=SWITCH_IPS[1],
                            agent_ip=AGENTS_IPS[1])
 # Adds (session address, label) tuples to the MdcReceiver module
-mdc_rec_02.add(entries=[{'addr': '1a:1b', 'label': 0x03}])
+mdc_rec_02.add(entries=[{'addr': '1a:1b', 'label': 0x03000000}])
 
 mdc_switch:1 -> 0:mdc_rec_02
 mdc_rec_02:0 -> 1:mdc_switch
 mdc_rec_02:1 -> rec_02_mypkts::Sink()
-
-# Ping pkts
-q_02::Queue()
-mdc_pkt_gen_02 -> q_02 -> 2:mdc_rec_02
+#
+# # Ping pkts
+# q_02::Queue()
+# mdc_pkt_gen_02 -> q_02 -> 2:mdc_rec_02
 
 # port1_inc0 -> 1:mdc_switch
 # mdc_switch:1 -> q2::Queue() -> port1_out0
 
-# # Traffic generator: this generates data pkts unlike the MdcPktGen that generate ctrl pkts
-# # Data rate depends on the capacity (Gbps), and data_pkt_size and Ethernet framing overhead (bytes)
-# tgen_pkt_rate = 0.0005 * 1e9 / (8 * (data_pkt_size + 24))
-# bess.add_tc('tgen', policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)})
-# # Creates a source, and limits its pkt rate
-# tgen_src::Source()
-# tgen_src.attach_task('tgen')
-# # Sends generated traffic on Port1
-# tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> 1:mdc_rec_01
+# Traffic generator: this generates data pkts unlike the MdcPktGen that generate ctrl pkts
+# Data rate depends on the capacity (Gbps), and data_pkt_size and Ethernet framing overhead (bytes)
+tgen_pkt_rate = 0.0005 * 1e9 / (8 * (data_pkt_size + 24))
+bess.add_tc('tgen', policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)})
+# Creates a source, and limits its pkt rate
+tgen_src::Source()
+tgen_src.attach_task('tgen')
+# Sends generated traffic on Port1
+tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> 1:mdc_rec_01
