@@ -130,8 +130,8 @@ mdc_rec_01:0 -> 0:mdc_switch
 mdc_rec_01:1 -> rec_01_mypkts::Sink()
 
 # Ping pkts
-# q_01::Queue()
-# mdc_pkt_gen_01 -> q_01 -> 2:mdc_rec_01
+q_01::Queue()
+mdc_pkt_gen_01 -> q_01 -> 2:mdc_rec_01
 
 
 
@@ -148,11 +148,11 @@ mdc_rec_02.add(entries=[{'addr': '1a:1b', 'label': 0x03000000}])
 
 mdc_switch:1 -> 0:mdc_rec_02
 mdc_rec_02:0 -> 1:mdc_switch
-mdc_rec_02:1 -> rec_02_mypkts::Sink()
+mdc_rec_02:1 -> Dump(interval=1) -> rec_02_mypkts::Sink()
 #
-# # Ping pkts
-# q_02::Queue()
-# mdc_pkt_gen_02 -> q_02 -> 2:mdc_rec_02
+# Ping pkts
+q_02::Queue()
+mdc_pkt_gen_02 -> q_02 -> 2:mdc_rec_02
 
 # port1_inc0 -> 1:mdc_switch
 # mdc_switch:1 -> q2::Queue() -> port1_out0
@@ -166,3 +166,4 @@ tgen_src::Source()
 tgen_src.attach_task('tgen')
 # Sends generated traffic on Port1
 tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> 1:mdc_rec_01
+

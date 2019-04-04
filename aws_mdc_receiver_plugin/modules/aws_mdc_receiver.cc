@@ -642,21 +642,30 @@ void AwsMdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
                 mac_addr_t address = (p->raw_value() & 0x0000000000ffff00) >> 8;
                 mdc_label_t new_label = (p->raw_value() & 0x00ffffffff000000) >> 24;
 
+//                std::cout << std::hex << p->raw_value();
+//                std::cout << std::hex << address;
+//                std::cout << std::hex << new_label;
                 // if the session is already stored, modify it. Else, add it to the table.
                 if (aws_mdc_find(&mdc_table_, address, &tmp_label) == 0) {
                     ret = aws_mdc_mod_entry(&mdc_table_, address, new_label);
                 } else {
                     ret = aws_mdc_add_entry(&mdc_table_, address, new_label);
                 }
-
+//                std::cout << ret;
                 if (ret == 0) {
                     // send the pkt back to the switch
                     // set the label to 0x00000000
-                    *p = *p & be64_t(0xff00000000ffffff);
+                    *p = *p & be64_t(0xffffff00000000ff);
                     // set the mdc_type to 0xf3
-                    *p = *p | be64_t(0x00000000000000f3);
+                    *p = *p | be64_t(0xf300000000000000);
                     // set the current Agent ID
-                    *p = *p | (be64_t(agent_id_) >> 24);
+                    *p = *p | (be64_t(agent_id_) << 32);
+//                    std::cout << std::hex << (*p | (be64_t(agent_id_) >> 24));
+//                    std::cout << std::hex << (*p | (be64_t(agent_id_) >> 16));
+//                    std::cout << std::hex << ();
+                    EmitPacket(ctx, pkt, 0);
+                } else {
+                    DropPacket(ctx, pkt);
                 }
             }
         }

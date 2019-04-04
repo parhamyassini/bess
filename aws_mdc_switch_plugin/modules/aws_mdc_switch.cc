@@ -256,7 +256,7 @@ void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
                 EmitPacket(ctx, pkt, 8);
             } else if (mdc_type == 0xf2) {
                 // sync-state pkt
-
+//                std::cout << "HELLO";
                 for (uint8_t i = 0; i < AWS_MAX_INTF_COUNT; i++) {
                     if (i == AWS_MAX_INTF_COUNT - 1) {
                         Udp *udp = reinterpret_cast<Udp *>(reinterpret_cast<uint8_t *>(ip) + ip_bytes);
