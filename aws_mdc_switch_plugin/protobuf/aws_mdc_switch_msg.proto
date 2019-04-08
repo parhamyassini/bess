@@ -56,10 +56,11 @@ message AwsMdcSwitchCommandAddArg {
  * __Output Gates__: 1
  */
 message AwsMdcSwitchArg {
-  repeated string switch_ips = 1;
-  repeated string switch_macs = 2;
-  repeated string agents_ips = 3; // The IP
-  repeated string agents_macs = 4; /// The MAC address
+  uint32 switch_id = 1; /// Switch ID
+  repeated string switch_ips = 2;
+  repeated string switch_macs = 3;
+  repeated string agents_ips = 4; // The IP
+  repeated string agents_macs = 5; /// The MAC address
 }
 
 

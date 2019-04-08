@@ -55,6 +55,9 @@ const Commands AwsMdcSwitch::cmds = {
 
 CommandResponse
 AwsMdcSwitch::Init(const sample::aws_mdc_switch::pb::AwsMdcSwitchArg &arg) {
+
+    switch_id_ = arg.switch_id();
+
     if (arg.switch_ips_size() <= 0 || arg.switch_ips_size() > 16) {
         return CommandFailure(EINVAL, "no less than 1 and no more than 16 switch IPs");
     }
@@ -109,6 +112,7 @@ AwsMdcSwitch::Init(const sample::aws_mdc_switch::pb::AwsMdcSwitchArg &arg) {
     label_gates_[5] = 0x20;
     label_gates_[6] = 0x40;
     label_gates_[7] = 0x80;
+    std::cout << "dddddddd" << active_agent_id_;
 
     return CommandSuccess();
 }
@@ -127,6 +131,7 @@ CommandResponse AwsMdcSwitch::CommandClear(const bess::pb::EmptyArg &) {
 
 void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
     int cnt = batch->cnt();
+    uint64_t now_ns = tsc_to_ns(rdtsc());
 
     for (int i = 0; i < cnt; i++) {
         bess::Packet *pkt = batch->pkts()[i];
@@ -176,9 +181,15 @@ void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
         if (mdc_type == 0xff) {
             // Data pkts
             uint8_t mode = (p->raw_value() & 0x0000ff0000000000) >> 40;
+
+            // If mode is 0x00, the data pkt needs to be forwarded to the active agent
             if (mode == 0x00) {
-                // If mode is 0x00, the data pkt needs to be forwarded to the active agent
-                EmitPacket(ctx, pkt, active_agent_id_);
+                // If the active-agent is set, send the pkt to it
+                if(active_agent_id_ != 0xffff) {
+                    EmitPacket(ctx, pkt, active_agent_id_);
+                } else {
+                    DropPacket(ctx, pkt);
+                }
             } else {
                 // Let's check the label
                 uint8_t label = (p->raw_value() & 0x00ff000000000000) >> 48;
@@ -187,6 +198,10 @@ void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
                 if (remaining_gate_count == 0) {
                     DropPacket(ctx, pkt);
                     continue;
+                }
+
+                if (unlikely(!first_pkt_fwd_ns_)) {
+                    first_pkt_fwd_ns_ = now_ns;
                 }
 
                 for (uint8_t i = 0; i < AWS_MAX_INTF_COUNT; i++) {
@@ -220,6 +235,7 @@ void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
                                 ip->fragment_offset = be16_t(Ipv4::Flag::kDF);
                                 new_udp->checksum = CalculateIpv4UdpChecksum(*new_ip, *new_udp);
                                 new_ip->checksum = bess::utils::CalculateIpv4Checksum(*new_ip);
+
                                 EmitPacket(ctx, new_pkt, i);
                             }
                         }
@@ -231,6 +247,13 @@ void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
             // A control pkt
             if (mdc_type == 0x00) {
                 // set-active-agent pkt
+                std::cout << "set-active-agent pkt";
+                last_new_agent_ns_ = now_ns;
+                uint16_t active_agent_id = (p->raw_value() & 0x0000000000ffff00) >> 8;
+                active_agent_id_ = active_agent_id;
+
+                std::cout << "First Fwd Pkt @ " << first_pkt_fwd_ns_;
+                std::cout << "Failed Active Agent @ " << last_new_agent_ns_;
             }
             else if (mdc_type == 0xf1) {
                 // A pong pkt

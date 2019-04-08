@@ -36,6 +36,7 @@
 #include "module.h"
 #include "utils/bits.h"
 #include "utils/endian.h"
+#include "utils/time.h"
 #include "utils/checksum.h"
 #include "utils/ether.h"
 #include "utils/arp.h"
@@ -63,10 +64,10 @@ public:
   static const gate_idx_t kNumIGates = 1 + AWS_MAX_INTF_COUNT;
   static const gate_idx_t kNumOGates = 1 + AWS_MAX_INTF_COUNT;
 
-  AwsMdcSwitch() : Module(),
-                   active_agent_id_(0), label_gates_(),
+  AwsMdcSwitch() : Module(), switch_id_(),
+                   active_agent_id_(0xffff), label_gates_(),
                    switch_ips_(), switch_macs_(),
-                   agent_ips_(), agent_macs_() {
+                   agent_ips_(), agent_macs_(), last_new_agent_ns_(), first_pkt_fwd_ns_() {
       max_allowed_workers_ = Worker::kMaxWorkers;
   }
 
@@ -79,6 +80,7 @@ public:
   CommandResponse CommandClear(const bess::pb::EmptyArg &arg);
 
 private:
+    gate_idx_t switch_id_;
     gate_idx_t active_agent_id_;
     uint8_t label_gates_[AWS_MAX_INTF_COUNT];
 
@@ -90,6 +92,9 @@ private:
 
     // Mapping between IP (key) and gate_idx
     std::map<be32_t, gate_idx_t> entries_;
+
+    uint64_t last_new_agent_ns_;
+    uint64_t first_pkt_fwd_ns_;
 };
 
 #endif // BESS_MODULES_LABELLOOKUP_H_

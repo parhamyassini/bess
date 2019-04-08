@@ -34,9 +34,13 @@ import scapy.all as scapy
 LOCAL_PORT_NAME = 'p'
 LOCAL_SOCKET_PATH = '/tmp/mdc_dp_%s.sock' % LOCAL_PORT_NAME
 
+# short integer only
+SWITCH_ID = 0
+# PCI device id
 SWITCH_NICS = ['', '']
+# short integers only
 AGENTS_IDS = [0, 1]
-# 1 byte only
+# 1-byte labels only
 AGENTS_LABELS = [0x01, 0x02]
 SWITCH_MACS = ['0a:23:5e:9c:b1:5c', '0a:4e:2e:be:cb:52']
 AGENTS_MACS = ['0a:b2:17:d3:c2:d6', '0a:34:b9:2e:27:10']
@@ -104,7 +108,8 @@ ping_02_layer = MDCPing(type=0xf0, agent=AGENTS_IDS[1], port=AGENTS_IDS[1])
 ping_02_pkt = ping_02_eth / ping_02_ip / ping_02_udp / ping_02_layer
 ping_02_pkt_bytes = bytes(ping_02_pkt)
 
-mdc_switch::AwsMdcSwitch(switch_macs=SWITCH_MACS,
+mdc_switch::AwsMdcSwitch(switch_id=SWITCH_ID,
+                         switch_macs=SWITCH_MACS,
                          switch_ips=SWITCH_IPS,
                          agents_macs=AGENTS_MACS,
                          agents_ips=AGENTS_IPS)
@@ -148,7 +153,7 @@ mdc_rec_02.add(entries=[{'addr': '1a:1b', 'label': 0x03000000}])
 
 mdc_switch:1 -> 0:mdc_rec_02
 mdc_rec_02:0 -> 1:mdc_switch
-mdc_rec_02:1 -> Dump(interval=1) -> rec_02_mypkts::Sink()
+mdc_rec_02:1 -> rec_02_mypkts::Sink()
 #
 # Ping pkts
 q_02::Queue()

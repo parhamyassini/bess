@@ -15,5 +15,5 @@ git am ~/bess/deps/amzn-drivers/userspace/dpdk/17.11/00*
 (cd ~/bess
 ./build.py dpdk
 ./build.py
-./build.py --plugin aws_mdc_switch_plugin --plugin aws_mdc_receiver_plugin
+./build.py --plugin aws_mdc_switch_plugin --plugin aws_mdc_receiver_plugin --plugin aws_mdc_pkt_gen_plugin
 )

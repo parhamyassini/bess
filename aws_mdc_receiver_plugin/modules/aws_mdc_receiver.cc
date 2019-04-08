@@ -195,7 +195,7 @@ static inline int aws_mdc_find(struct aws_mdc_table *mdc_tbl, uint64_t addr,
 }
 
 static inline int aws_mdc_mod_entry(struct aws_mdc_table *mdc_tbl, uint64_t addr,
-                               mdc_label_t new_label) {
+                                    mdc_label_t new_label) {
     size_t i;
     int ret = -ENOENT;
     uint32_t hash, idx1, offset;
@@ -563,59 +563,42 @@ void AwsMdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
             mac_addr_t address = (p->raw_value() & 0x0000000000ffff00) >> 8;
             mdc_mode_t mode = (p->raw_value() & 0x0000ff0000000000) >> 40;
             if (mode == 0x00) {
-//                if (ctx->current_igate == 1) {
-                    // If mode is 0x00, the data pkt needs to be labeled
-                    mdc_label_t out_label = 0x00;
-                    int ret = aws_mdc_find(&mdc_table_, address, &out_label);
-                    if (ret != 0) {
-                        out_label = 0x00;
-                    }
+                // If mode is 0x00, the data pkt needs to be labeled
+                mdc_label_t out_label = 0x00;
+                int ret = aws_mdc_find(&mdc_table_, address, &out_label);
+                if (ret != 0) {
+                    out_label = 0x00;
+                }
 
-                    bool agent_is_only_recv = (~agent_label_ & ~out_label) == ~agent_label_;
+                bool agent_is_only_recv = (~agent_label_ & ~out_label) == ~agent_label_;
 
-                    // If the Agent host has a receiver, copy the pkt and send it to Gate 1.
-                    if ((agent_label_ & out_label) == agent_label_) {
-                        if (!agent_is_only_recv) {
-                            bess::Packet *new_pkt = bess::Packet::copy(pkt);
-                            if (new_pkt) {
-                                EmitPacket(ctx, new_pkt, 1);
-                            }
-                        } else {
-                            EmitPacket(ctx, pkt, 1);
+                // If the Agent host has a receiver, copy the pkt and send it to Gate 1.
+                if ((agent_label_ & out_label) == agent_label_) {
+                    if (!agent_is_only_recv) {
+                        bess::Packet *new_pkt = bess::Packet::copy(pkt);
+                        if (new_pkt) {
+                            EmitPacket(ctx, new_pkt, 1);
                         }
+                    } else {
+                        EmitPacket(ctx, pkt, 1);
                     }
+                }
 
-                    if (agent_is_only_recv) {
-                        continue;
-                    }
+                if (agent_is_only_recv) {
+                    continue;
+                }
 
-//                    std::cout << "gate" << ctx->current_igate;
-//                    std::cout << "agent label" << agent_label_;
-//                    std::cout << "LABEL" << std::hex << out_label;
-//                    std::cout << "ADDR" << address;
-//                    std::cout << std::hex << address;
-//                    std::cout << "BEFORE";
-//                    std::cout << std::hex << p->raw_value();
+                // Label the pkt, make sure to remove the agent ID label from the final label
+                *p = *p | (be64_t(out_label & ~agent_label_) >> 16);
+                *p = *p | be64_t(0x0000000000ff0000);
 
-                    // Label the pkt, make sure to remove the agent ID label from the final label
+                eth->dst_addr = switch_mac_;
+                ip->dst = switch_ip_;
 
-                    *p = *p | (be64_t(out_label & ~agent_label_) >> 16);
-//                    std::cout << "AFTER1";
-//                    std::cout << std::hex << *p;
-                    *p = *p | be64_t(0x0000000000ff0000);
+                eth->src_addr = agent_mac_;
+                ip->src = agent_ip_;
 
-//                    std::cout << "AFTER2";
-//                    std::cout << std::hex << p->raw_value();
-
-
-                    eth->dst_addr = switch_mac_;
-                    ip->dst = switch_ip_;
-
-                    eth->src_addr = agent_mac_;
-                    ip->src = agent_ip_;
-
-                    EmitPacket(ctx, pkt, 0);
-//                }
+                EmitPacket(ctx, pkt, 0);
             } else {
                 EmitPacket(ctx, pkt, 1);
             }
@@ -642,16 +625,12 @@ void AwsMdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
                 mac_addr_t address = (p->raw_value() & 0x0000000000ffff00) >> 8;
                 mdc_label_t new_label = (p->raw_value() & 0x00ffffffff000000) >> 24;
 
-//                std::cout << std::hex << p->raw_value();
-//                std::cout << std::hex << address;
-//                std::cout << std::hex << new_label;
                 // if the session is already stored, modify it. Else, add it to the table.
                 if (aws_mdc_find(&mdc_table_, address, &tmp_label) == 0) {
                     ret = aws_mdc_mod_entry(&mdc_table_, address, new_label);
                 } else {
                     ret = aws_mdc_add_entry(&mdc_table_, address, new_label);
                 }
-//                std::cout << ret;
                 if (ret == 0) {
                     // send the pkt back to the switch
                     // set the label to 0x00000000
@@ -660,9 +639,6 @@ void AwsMdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
                     *p = *p | be64_t(0xf300000000000000);
                     // set the current Agent ID
                     *p = *p | (be64_t(agent_id_) << 32);
-//                    std::cout << std::hex << (*p | (be64_t(agent_id_) >> 24));
-//                    std::cout << std::hex << (*p | (be64_t(agent_id_) >> 16));
-//                    std::cout << std::hex << ();
                     EmitPacket(ctx, pkt, 0);
                 } else {
                     DropPacket(ctx, pkt);
