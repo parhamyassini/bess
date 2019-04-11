@@ -28,6 +28,8 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+import scapy.all as scapy
+
 
 #AGENT_ID = 0x01
 #SWITCH_MAC = '0a:23:5e:9c:b1:5c'
@@ -46,8 +48,24 @@ AGENT_IP = '172.31.11.133'
 
 num_cores = int($BESS_CORES!'20')
 
-
 print('Core count = %d' % num_cores)
+
+
+# Ping pkt (a ctrl pkt)
+class MDCPing(scapy.Packet):
+    name = 'MulticastDataCenterPing '
+    fields_desc = [scapy.XByteField('type', 0),
+                   scapy.XByteField('agent', 0),
+                   scapy.XByteField('port', 0)]
+
+
+# Ping pkt template
+ping_eth = scapy.Ether(src=AGENT_MAC, dst=SWITCH_MAC, type=0x0800)
+ping_ip = scapy.IP(src=AGENTS_IP, dst=SWITCH_IP)
+ping_udp = scapy.UDP(sport=10001, dport=10002)
+ping_layer = MDCPing(type=0xf0, agent=AGENT_ID, port=AGENT_ID)
+ping_pkt = ping_eth / ping_ip / ping_udp / ping_layer
+ping_pkt_bytes = bytes(ping_pkt)
 
 # If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
 # TODO: this needs to depend on the CPU layout and where the NIC is
@@ -59,6 +77,7 @@ port0::PMDPort(pci=AGENT_NIC)
 port0_inc0::QueueInc(port=port0, qid=0)
 port0_out0::QueueOut(port=port0, qid=0)
 
+mdc_pkt_gen::AwsMdcPktGen(template=ping_pkt_bytes, pps=1e2)
 mdc_rec::AwsMdcReceiver(agent_id=AGENT_ID,
                         switch_mac=SWITCH_MAC,
                         agent_mac=AGENT_MAC,
@@ -66,56 +85,13 @@ mdc_rec::AwsMdcReceiver(agent_id=AGENT_ID,
                         agent_ip=AGENT_IP)
 
 # Adds (session address, label) tuples to the MdcReceiver module
-mdc_rec.add(entries=[{'addr': '1a:1b', 'label': 0x03}])
+mdc_rec.add(entries=[{'addr': '1a:1b', 'label': 0x06000000}])
 
-port0_inc0 -> mdc_rec
+port0_inc0 -> 0:mdc_rec
 mdc_rec:0 -> port0_out0
 mdc_rec:1 -> rec1_mypkts::Sink()
 
 
-#import scapy.all as scapy
-
-
-#CONST_DATA_SIZE = 46
-#data_pkt_size = 128
-## Data pkt
-#class MDCData(scapy.Packet):
-#    name = 'MulticastDataCenterData '
-#    fields_desc = [scapy.ShortField('addr', 0),
-#                   scapy.XByteField('mode', 0),
-#                   scapy.XByteField('label', 0)]
-
-
-# Data pkt template
-#data_eth = scapy.Ether(src=AGENT_MAC, dst=SWITCH_MAC, type=0x0800)
-#data_ip = scapy.IP(src=AGENT_IP, dst=SWITCH_IP)
-#data_udp = scapy.UDP(sport=10001, dport=10002)
-#unlabeled_data_mdc = MDCData(addr=0x1a1b, mode=0x0, label=0x0)
-#data_payload = bytes(unlabeled_data_mdc) + b"\0" * (data_pkt_size - CONST_DATA_SIZE)
-#unlabeled_data_pkt = data_eth / data_ip / data_udp / data_payload
-#unlabeled_data_pkt_bytes = bytes(unlabeled_data_pkt)
-
-
-
-#tgen_pkt_rate = 0.05 * 1e9 / (8 * (data_pkt_size + 24))
-#bess.add_tc('tgen', policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)})
-# # Creates a source, and limits its pkt rate
-#tgen_src::Source()
-#tgen_src.attach_task('tgen')
-## Sends generated traffic on Port1
-#tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> port0_out0
-
-
-
-
-
-#bpf::BPF()
-#bpf.add(filters=[{'filter':'arp', 'gate':0}])
-#bpf.add(filters=[{'filter':'ip and udp', 'gate':1}])
-
-#arp::ArpResponder()
-#arp.add(ip=AGENT_IP, mac_addr=AGENT_MAC)
-
-#port0_inc0 -> bpf
-#bpf:0 -> arp -> port0_out0
-#bpf:1 -> mdc_rec
+# Ping pkts
+q_01::Queue()
+mdc_pkt_gen -> q_01 -> 2:mdc_rec_01
