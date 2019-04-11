@@ -186,6 +186,16 @@ void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
             if (mode == 0x00) {
                 // If the active-agent is set, send the pkt to it
                 if(active_agent_id_ != 0xffff) {
+                    Udp *udp = reinterpret_cast<Udp *>(reinterpret_cast<uint8_t *>(ip) + ip_bytes);
+                    eth->dst_addr = agent_macs_[active_agent_id_];
+                    ip->dst = agent_ips_[active_agent_id_];
+
+                    eth->src_addr = switch_macs_[active_agent_id_];
+                    ip->src = switch_ips_[active_agent_id_];
+                    ip->id = be16_t(active_agent_id_ + 1);
+                    ip->fragment_offset = be16_t(Ipv4::Flag::kDF);
+                    udp->checksum = CalculateIpv4UdpChecksum(*ip, *udp);
+                    ip->checksum = bess::utils::CalculateIpv4Checksum(*ip);
                     EmitPacket(ctx, pkt, active_agent_id_);
                 } else {
                     DropPacket(ctx, pkt);
