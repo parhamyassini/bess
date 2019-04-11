@@ -93,12 +93,15 @@ for i in range(num_cores):
 # Define Ports and Queues
 ports = [PMDPort(pci=switch_nic) for switch_nic in SWITCH_NICS]
 
-for port_id, port in enumerate(ports):
-    qinc_name = 'port%d_inc0' % port_id
-    qout_name = 'port%d_out0' % port_id
-    QueueInc(name=qinc_name, port=port, qid=0)
-    QueueOut(name=qout_name, port=port, qid=0)
-
+#for port_id, port in enumerate(ports):
+#    qinc_name = 'port%d_inc0' % port_id
+#    qout_name = 'port%d_out0' % port_id
+port0_inc0::QueueInc(port=ports[0], qid=0)
+port0_out0::QueueOut(port=ports[0], qid=0)
+port1_inc0::QueueInc(port=ports[1], qid=0)
+port1_out0::QueueOut(port=ports[1], qid=0)
+port2_inc0::QueueInc(port=ports[2], qid=0)
+port2_out0::QueueOut(port=ports[2], qid=0)
 
 mdc_switch::AwsMdcSwitch(switch_id=SWITCH_ID,
                          switch_macs=SWITCH_MACS,
@@ -108,14 +111,15 @@ mdc_switch::AwsMdcSwitch(switch_id=SWITCH_ID,
 
 # Control plane of switch
 p = UnixSocketPort(name='p', path=LOCAL_SOCKET_PATH)
-PortInc(port='p') -> 8:mdc_switch
-mdc_switch:8 -> PortOut(port='p')
+PortInc(port='p') -> Queue() -> 8:mdc_switch
+mdc_switch:8 -> Queue() -> PortOut(port='p')
 
 
 # a hack way to connect ports
 nic_count = len(SWITCH_NICS)
 
 if nic_count >= 1:
+    print(mdc_switch)
     port0_inc0 -> 0:mdc_switch
     mdc_switch:0 -> q0::Queue() -> port0_out0
 if nic_count >= 2:
