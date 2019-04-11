@@ -31,20 +31,29 @@
 import scapy.all as scapy
 
 
-#AGENT_ID = 0x01
-#SWITCH_MAC = '0a:23:5e:9c:b1:5c'
-#AGENT_MAC = '0a:b2:17:d3:c2:d6'
-#SWITCH_IP = '172.31.1.107'
-#AGENT_IP = '172.31.7.206'
+AGENT_ID = 0
+AGENT_LABEL = 0x01
+AGENT_NIC = '0000:7e:00.0'
+SWITCH_MAC = '06:53:19:33:a6:10'
+AGENT_MAC = '06:99:06:19:c6:a2'
+SWITCH_IP = '172.31.28.77'
+AGENT_IP = '172.31.18.151'
 
 
-AGENT_ID = 0x02
-AGENT_NIC = ''
-SWITCH_MAC = '0a:4e:2e:be:cb:52'
-AGENT_MAC = '0a:34:b9:2e:27:10'
-SWITCH_IP = '172.31.8.238'
-AGENT_IP = '172.31.11.133'
+#AGENT_ID = 0x02
+#AGENT_NIC = '0000:7e:00.0'
+#SWITCH_MAC = '06:73:37:4b:29:e2'
+#AGENT_MAC = '06:d4:ea:68:76:6e'
+#SWITCH_IP = '172.31.18.52'
+#AGENT_IP = '172.31.18.68'
 
+
+#AGENT_ID = 0x03
+#AGENT_NIC = '0000:7e:00.0'
+#SWITCH_MAC = '06:a6:7e:72:37:92'
+#AGENT_MAC = '06:9f:da:98:a4:76'
+#SWITCH_IP = '172.31.17.223'
+#AGENT_IP = '172.31.26.147'
 
 num_cores = int($BESS_CORES!'20')
 
@@ -61,7 +70,7 @@ class MDCPing(scapy.Packet):
 
 # Ping pkt template
 ping_eth = scapy.Ether(src=AGENT_MAC, dst=SWITCH_MAC, type=0x0800)
-ping_ip = scapy.IP(src=AGENTS_IP, dst=SWITCH_IP)
+ping_ip = scapy.IP(src=AGENT_IP, dst=SWITCH_IP)
 ping_udp = scapy.UDP(sport=10001, dport=10002)
 ping_layer = MDCPing(type=0xf0, agent=AGENT_ID, port=AGENT_ID)
 ping_pkt = ping_eth / ping_ip / ping_udp / ping_layer
@@ -79,6 +88,7 @@ port0_out0::QueueOut(port=port0, qid=0)
 
 mdc_pkt_gen::AwsMdcPktGen(template=ping_pkt_bytes, pps=1e2)
 mdc_rec::AwsMdcReceiver(agent_id=AGENT_ID,
+			agent_label=AGENT_LABEL,
                         switch_mac=SWITCH_MAC,
                         agent_mac=AGENT_MAC,
                         switch_ip=SWITCH_IP,
@@ -88,10 +98,10 @@ mdc_rec::AwsMdcReceiver(agent_id=AGENT_ID,
 mdc_rec.add(entries=[{'addr': '1a:1b', 'label': 0x06000000}])
 
 port0_inc0 -> 0:mdc_rec
-mdc_rec:0 -> port0_out0
+mdc_rec:0 -> Queue() -> port0_out0
 mdc_rec:1 -> rec1_mypkts::Sink()
 
 
 # Ping pkts
 q_01::Queue()
-mdc_pkt_gen -> q_01 -> 2:mdc_rec_01
+mdc_pkt_gen -> q_01 -> 2:mdc_rec
