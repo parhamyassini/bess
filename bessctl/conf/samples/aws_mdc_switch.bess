@@ -37,15 +37,15 @@ LOCAL_SOCKET_PATH = '/tmp/mdc_dp_%s.sock' % LOCAL_PORT_NAME
 # short integer only
 SWITCH_ID = 0
 # PCI device id
-SWITCH_NICS = ['', '']
+SWITCH_NICS = ['0000:7e:00.0', '0000:7f:00.0', '0000:80:00.0']
 # short integers only
-AGENTS_IDS = [0, 1]
+AGENTS_IDS = [0, 1, 2]
 # 1-byte labels only
-AGENTS_LABELS = [0x01, 0x02]
-SWITCH_MACS = ['0a:23:5e:9c:b1:5c', '0a:4e:2e:be:cb:52']
-AGENTS_MACS = ['0a:b2:17:d3:c2:d6', '0a:34:b9:2e:27:10']
-SWITCH_IPS = ['172.31.1.107', '172.31.8.238']
-AGENTS_IPS = ['172.31.7.206', '172.31.11.133']
+AGENTS_LABELS = [0x01, 0x02, 0x03]
+SWITCH_MACS = ['06:53:19:33:a6:10', '06:73:37:4b:29:e2', '06:a6:7e:72:37:92']
+AGENTS_MACS = ['06:99:06:19:c6:a2', '06:d4:ea:68:76:6e', '06:9f:da:98:a4:76']
+SWITCH_IPS = ['172.31.28.77', '172.31.18.52', '172.31.17.223']
+AGENTS_IPS = ['172.31.18.151', '172.31.18.68', '172.31.26.147']
 
 assert len(SWITCH_NICS) == len(SWITCH_MACS) == len(AGENTS_MACS) == len(SWITCH_IPS) == len(
     AGENTS_IPS), 'input lists need to have same number of elements'

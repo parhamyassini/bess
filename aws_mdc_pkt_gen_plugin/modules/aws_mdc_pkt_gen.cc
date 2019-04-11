@@ -65,7 +65,7 @@ AwsMdcPktGen::ProcessUpdatableArgs(const sample::aws_mdc_pkt_gen::pb::AwsMdcPktG
     }
 
     if (arg.pps() != 0) {
-        if (std::isnan(arg.pps()) || arg.pps() < 0.0) {
+        if (/*std::isnan(arg.pps()) ||*/ arg.pps() < 0.0) {
             return CommandFailure(EINVAL, "invalid 'pps'");
         }
         total_pps_ = arg.pps();
