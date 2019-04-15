@@ -31,16 +31,17 @@
 import scapy.all as scapy
 
 
-AGENT_ID = 0
-AGENT_LABEL = 0x01
-AGENT_NIC = '0000:7e:00.0'
-SWITCH_MAC = '06:53:19:33:a6:10'
-AGENT_MAC = '06:99:06:19:c6:a2'
-SWITCH_IP = '172.31.28.77'
-AGENT_IP = '172.31.18.151'
+#AGENT_ID = 0
+#AGENT_LABEL = 0x01
+#AGENT_NIC = '0000:7e:00.0'
+#SWITCH_MAC = '06:53:19:33:a6:10'
+#AGENT_MAC = '06:99:06:19:c6:a2'
+#SWITCH_IP = '172.31.28.77'
+#AGENT_IP = '172.31.18.151'
 
 
-#AGENT_ID = 0x02
+#AGENT_ID = 1
+#AGENT_LABEL = 0x02
 #AGENT_NIC = '0000:7e:00.0'
 #SWITCH_MAC = '06:73:37:4b:29:e2'
 #AGENT_MAC = '06:d4:ea:68:76:6e'
@@ -48,12 +49,13 @@ AGENT_IP = '172.31.18.151'
 #AGENT_IP = '172.31.18.68'
 
 
-#AGENT_ID = 0x03
-#AGENT_NIC = '0000:7e:00.0'
-#SWITCH_MAC = '06:a6:7e:72:37:92'
-#AGENT_MAC = '06:9f:da:98:a4:76'
-#SWITCH_IP = '172.31.17.223'
-#AGENT_IP = '172.31.26.147'
+AGENT_ID = 2
+AGENT_LABEL = 0x04
+AGENT_NIC = '0000:7e:00.0'
+SWITCH_MAC = '06:a6:7e:72:37:92'
+AGENT_MAC = '06:9f:da:98:a4:76'
+SWITCH_IP = '172.31.17.223'
+AGENT_IP = '172.31.26.147'
 
 num_cores = int($BESS_CORES!'20')
 
@@ -99,7 +101,7 @@ mdc_rec.add(entries=[{'addr': '1a:1b', 'label': 0x06000000}])
 
 port0_inc0 -> 0:mdc_rec
 mdc_rec:0 -> Queue() -> port0_out0
-mdc_rec:1 -> AwsMdcThroughput() -> rec1_mypkts::Sink()
+mdc_rec:1 -> Queue() -> AwsMdcThroughput() -> rec1_mypkts::Sink()
 
 
 # Ping pkts
