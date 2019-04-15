@@ -99,7 +99,7 @@ mdc_rec.add(entries=[{'addr': '1a:1b', 'label': 0x06000000}])
 
 port0_inc0 -> 0:mdc_rec
 mdc_rec:0 -> Queue() -> port0_out0
-mdc_rec:1 -> AwsMdcThroughput() -> rec1_mypkts::Sink()
+mdc_rec:1 -> Queue() -> AwsMdcThroughput() -> rec1_mypkts::Sink()
 
 
 # Ping pkts
