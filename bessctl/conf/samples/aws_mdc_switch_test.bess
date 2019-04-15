@@ -128,11 +128,11 @@ mdc_rec_01::AwsMdcReceiver(agent_id=AGENTS_IDS[0],
                            switch_ip=SWITCH_IPS[0],
                            agent_ip=AGENTS_IPS[0])
 # Adds (session address, label) tuples to the MdcReceiver module
-mdc_rec_01.add(entries=[{'addr': '1a:1b', 'label': 0x03000000}])
+mdc_rec_01.add(entries=[{'addr': '1a:1b', 'label': 0x02000000}])
 
 mdc_switch:0 -> 0:mdc_rec_01
 mdc_rec_01:0 -> 0:mdc_switch
-mdc_rec_01:1 -> rec_01_mypkts::Sink()
+mdc_rec_01:1 -> AwsMdcThroughput() -> rec_01_mypkts::Sink()
 
 # Ping pkts
 q_01::Queue()
@@ -149,11 +149,11 @@ mdc_rec_02::AwsMdcReceiver(agent_id=AGENTS_IDS[1],
                            switch_ip=SWITCH_IPS[1],
                            agent_ip=AGENTS_IPS[1])
 # Adds (session address, label) tuples to the MdcReceiver module
-mdc_rec_02.add(entries=[{'addr': '1a:1b', 'label': 0x03000000}])
+mdc_rec_02.add(entries=[{'addr': '1a:1b', 'label': 0x02000000}])
 
 mdc_switch:1 -> 0:mdc_rec_02
 mdc_rec_02:0 -> 1:mdc_switch
-mdc_rec_02:1 -> rec_02_mypkts::Sink()
+mdc_rec_02:1 -> AwsMdcThroughput() -> rec_02_mypkts::Sink()
 #
 # Ping pkts
 q_02::Queue()
