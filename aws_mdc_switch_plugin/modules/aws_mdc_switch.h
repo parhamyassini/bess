@@ -42,6 +42,7 @@
 #include "utils/arp.h"
 #include "utils/ip.h"
 #include "utils/udp.h"
+#include "utils/histogram.h"
 #include "utils/exact_match_table.h"
 
 #include "pb/aws_mdc_switch_msg.pb.h"
@@ -67,7 +68,9 @@ public:
   AwsMdcSwitch() : Module(), switch_id_(),
                    active_agent_id_(0xffff), label_gates_(),
                    switch_ips_(), switch_macs_(),
-                   agent_ips_(), agent_macs_(), last_new_agent_ns_(), first_pkt_fwd_ns_() {
+                   agent_ips_(), agent_macs_(), last_new_agent_ns_(), first_pkt_fwd_ns_(),
+                   timestamp_en_(false),
+                   rtt_hist_(0, 1) {
       max_allowed_workers_ = Worker::kMaxWorkers;
   }
 
@@ -80,6 +83,9 @@ public:
   CommandResponse CommandClear(const bess::pb::EmptyArg &arg);
 
 private:
+    static const uint64_t kDefaultNsPerBucket = 100;
+    static const uint64_t kDefaultMaxNs = 100'000'000;  // 100 ms
+
     gate_idx_t switch_id_;
     gate_idx_t active_agent_id_;
     uint8_t label_gates_[AWS_MAX_INTF_COUNT];
@@ -95,6 +101,10 @@ private:
 
     uint64_t last_new_agent_ns_;
     uint64_t first_pkt_fwd_ns_;
+
+    bool timestamp_en_;
+    Histogram<uint64_t> rtt_hist_;
+
 };
 
 #endif // BESS_MODULES_LABELLOOKUP_H_

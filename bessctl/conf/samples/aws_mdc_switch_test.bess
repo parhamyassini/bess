@@ -34,6 +34,8 @@ import scapy.all as scapy
 LOCAL_PORT_NAME = 'p'
 LOCAL_SOCKET_PATH = '/tmp/mdc_dp_%s.sock' % LOCAL_PORT_NAME
 
+TIMESTAMPED = True
+
 # short integer only
 SWITCH_ID = 0
 # PCI device id
@@ -50,7 +52,11 @@ AGENTS_IPS = ['172.31.7.206', '172.31.11.133']
 assert len(SWITCH_NICS) == len(SWITCH_MACS) == len(AGENTS_MACS) == len(SWITCH_IPS) == len(
     AGENTS_IPS), 'input lists need to have same number of elements'
 
-CONST_DATA_SIZE = 46
+# CONST_DATA_SIZE = 46
+CONST_DATA_SIZE = 14 + 20 + 8 + 8
+
+if TIMESTAMPED:
+    CONST_DATA_SIZE += 8
 
 num_cores = int($BESS_CORES!'20')
 data_pkt_size = int($BESS_DATA_PKT_SIZE!'1024')
@@ -63,16 +69,28 @@ print('Data pkt size = %d' % data_pkt_size)
 if os.path.isfile(LOCAL_SOCKET_PATH):
     os.unlink(LOCAL_SOCKET_PATH)
 
-
 # Data pkt
 class MDCData(scapy.Packet):
-    name = 'MulticastDataCenterData '
+    name = 'mDCDataPkt '
     fields_desc = [scapy.XByteField('type', 0),
                    scapy.ShortField('addr', 0),
                    scapy.XByteField('label1', 0), # ToR -> Agg
                    scapy.XByteField('label2', 0), # Agg -> ToR
                    scapy.XByteField('mode', 0),
                    scapy.XByteField('label3', 0), # ToR -> Host
+                   ]
+
+# Data pkt
+class MDCTimestampedData(scapy.Packet):
+    name = 'mDCTimestampedDataPkt '
+    fields_desc = [scapy.XByteField('type', 0),
+                   scapy.ShortField('addr', 0),
+                   scapy.XByteField('label1', 0), # ToR -> Agg
+                   scapy.XByteField('label2', 0), # Agg -> ToR
+                   scapy.XByteField('mode', 0),
+                   scapy.XByteField('label3', 0), # ToR -> Host
+                   scapy.XByteField('dummy', 0), # dummy
+                   scapy.XLongField('timestamp', 0), # timestamp
                    ]
 
 # Ping pkt (a ctrl pkt)
@@ -87,7 +105,12 @@ class MDCPing(scapy.Packet):
 data_eth = scapy.Ether(src=SWITCH_MACS[0], dst=AGENTS_MACS[0], type=0x0800)
 data_ip = scapy.IP(src=SWITCH_IPS[0], dst=AGENTS_IPS[0])
 data_udp = scapy.UDP(sport=10001, dport=10002)
-unlabeled_data_mdc = MDCData(type=0xff, addr=0x1a1b, mode=0x0, label1=0x0, label2=0x0, label3=0x0)
+if TIMESTAMPED:
+    unlabeled_data_mdc = MDCTimestampedData(type=0xff, addr=0x1a1b, mode=0x0,
+                                            label1=0x0, label2=0x0, label3=0x0,
+                                            dummy=0x0, timestamp=0x0)
+else:
+    unlabeled_data_mdc = MDCData(type=0xff, addr=0x1a1b, mode=0x0, label1=0x0, label2=0x0, label3=0x0)
 data_payload = bytes(unlabeled_data_mdc) + b"\0" * (data_pkt_size - CONST_DATA_SIZE)
 unlabeled_data_pkt = data_eth / data_ip / data_udp / data_payload
 unlabeled_data_pkt_bytes = bytes(unlabeled_data_pkt)
@@ -112,7 +135,8 @@ mdc_switch::AwsMdcSwitch(switch_id=SWITCH_ID,
                          switch_macs=SWITCH_MACS,
                          switch_ips=SWITCH_IPS,
                          agents_macs=AGENTS_MACS,
-                         agents_ips=AGENTS_IPS)
+                         agents_ips=AGENTS_IPS,
+                         enable_timestamp=TIMESTAMPED)
 
 # Control plane of switch
 p = UnixSocketPort(name='p', path=LOCAL_SOCKET_PATH)
@@ -128,11 +152,11 @@ mdc_rec_01::AwsMdcReceiver(agent_id=AGENTS_IDS[0],
                            switch_ip=SWITCH_IPS[0],
                            agent_ip=AGENTS_IPS[0])
 # Adds (session address, label) tuples to the MdcReceiver module
-mdc_rec_01.add(entries=[{'addr': '1a:1b', 'label': 0x02000000}])
+mdc_rec_01.add(entries=[{'addr': '1a:1b', 'label': 0x03000000}])
 
 mdc_switch:0 -> 0:mdc_rec_01
 mdc_rec_01:0 -> 0:mdc_switch
-mdc_rec_01:1 -> AwsMdcThroughput() -> rec_01_mypkts::Sink()
+mdc_rec_01:1 -> rec_01_mypkts::Sink()
 
 # Ping pkts
 q_01::Queue()
@@ -149,11 +173,11 @@ mdc_rec_02::AwsMdcReceiver(agent_id=AGENTS_IDS[1],
                            switch_ip=SWITCH_IPS[1],
                            agent_ip=AGENTS_IPS[1])
 # Adds (session address, label) tuples to the MdcReceiver module
-mdc_rec_02.add(entries=[{'addr': '1a:1b', 'label': 0x02000000}])
+mdc_rec_02.add(entries=[{'addr': '1a:1b', 'label': 0x03000000}])
 
 mdc_switch:1 -> 0:mdc_rec_02
 mdc_rec_02:0 -> 1:mdc_switch
-mdc_rec_02:1 -> AwsMdcThroughput() -> rec_02_mypkts::Sink()
+mdc_rec_02:1 -> rec_02_mypkts::Sink()
 #
 # Ping pkts
 q_02::Queue()
@@ -170,5 +194,6 @@ bess.add_tc('tgen', policy='rate_limit', resource='packet', limit={'packet': int
 tgen_src::Source()
 tgen_src.attach_task('tgen')
 # Sends generated traffic on Port1
-tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> 1:mdc_rec_01
+tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> 7:mdc_switch
+# tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> 1:mdc_rec_01
 

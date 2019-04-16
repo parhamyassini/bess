@@ -57,6 +57,20 @@ CommandResponse
 AwsMdcSwitch::Init(const sample::aws_mdc_switch::pb::AwsMdcSwitchArg &arg) {
 
     switch_id_ = arg.switch_id();
+    timestamp_en_ = arg.enable_timestamp();
+
+    uint64_t latency_ns_max = kDefaultMaxNs;
+    uint64_t latency_ns_resolution = kDefaultNsPerBucket;
+    uint64_t quotient = latency_ns_max / latency_ns_resolution;
+    if ((latency_ns_max % latency_ns_resolution) != 0) {
+        quotient += 1;  // absorb any remainder
+    }
+    if (quotient > rtt_hist_.max_num_buckets() / 2) {
+        return CommandFailure(E2BIG, "excessive latency_ns_max / latency_ns_resolution");
+    }
+
+    size_t num_buckets = quotient;
+    rtt_hist_.Resize(num_buckets, latency_ns_resolution);
 
     if (arg.switch_ips_size() <= 0 || arg.switch_ips_size() > 16) {
         return CommandFailure(EINVAL, "no less than 1 and no more than 16 switch IPs");
@@ -112,7 +126,7 @@ AwsMdcSwitch::Init(const sample::aws_mdc_switch::pb::AwsMdcSwitchArg &arg) {
     label_gates_[5] = 0x20;
     label_gates_[6] = 0x40;
     label_gates_[7] = 0x80;
-    std::cout << "dddddddd" << active_agent_id_;
+    std::cout << "dddddddd" << timestamp_en_;
 
     return CommandSuccess();
 }
@@ -181,11 +195,20 @@ void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
         if (mdc_type == 0xff) {
             // Data pkts
             uint8_t mode = (p->raw_value() & 0x0000ff0000000000) >> 40;
-
+//            std::cout << std::hex << mode;
+//            std::cout << std::hex << (p->raw_value() & 0x0000ff0000000000);
+//            std::cout << std::hex << ((p->raw_value() & 0x0000ff0000000000) >> 40);
             // If mode is 0x00, the data pkt needs to be forwarded to the active agent
             if (mode == 0x00) {
                 // If the active-agent is set, send the pkt to it
+//                std::cout << "TTTT";
                 if(active_agent_id_ != 0xffff) {
+                    // timestamp the pkt
+                    if(timestamp_en_) {
+                        uint64_t *ts = reinterpret_cast<uint64_t *>(p + 1);
+                        *ts = now_ns;
+                    }
+
                     Udp *udp = reinterpret_cast<Udp *>(reinterpret_cast<uint8_t *>(ip) + ip_bytes);
                     eth->dst_addr = agent_macs_[active_agent_id_];
                     ip->dst = agent_ips_[active_agent_id_];
@@ -201,6 +224,27 @@ void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
                     DropPacket(ctx, pkt);
                 }
             } else {
+                // calculate diff from timestamp
+                if(timestamp_en_) {
+                    uint64_t *pkt_time = reinterpret_cast<uint64_t *>(p + 1);
+                    uint64_t diff;
+                    if (now_ns >= *pkt_time && *pkt_time != 0) {
+                        diff = now_ns - *pkt_time;
+                        rtt_hist_.Insert(diff);
+                        // a hack to collect results
+                        if (first_pkt_fwd_ns_ && (now_ns - first_pkt_fwd_ns_) >= 60'000'000'000) {
+                            timestamp_en_ = false;
+                            std::vector<double> latency_percentiles {95, 99, 99.9, 99.99};
+                            const auto &rtt = rtt_hist_.Summarize(latency_percentiles);
+                            std::cout << rtt.avg;
+                            std::cout << rtt.min;
+                            std::cout << rtt.max;
+                            for (int percentile_value : rtt.percentile_values)
+                                std::cout << percentile_value;
+                        }
+                    }
+                }
+
                 // Let's check the label
                 uint8_t label = (p->raw_value() & 0x00ff000000000000) >> 48;
                 int remaining_gate_count = numberOfSetBits_8(label);
@@ -264,6 +308,7 @@ void AwsMdcSwitch::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
 
                 std::cout << "First Fwd Pkt @ " << first_pkt_fwd_ns_;
                 std::cout << "Failed Active Agent @ " << last_new_agent_ns_;
+                std::cout << "Active Agent " << active_agent_id_;
             }
             else if (mdc_type == 0xf1) {
                 // A pong pkt

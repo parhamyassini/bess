@@ -34,6 +34,8 @@ import scapy.all as scapy
 LOCAL_PORT_NAME = 'p'
 LOCAL_SOCKET_PATH = '/tmp/mdc_dp_%s.sock' % LOCAL_PORT_NAME
 
+TIMESTAMPED = True
+
 # short integer only
 SWITCH_ID = 0
 # PCI device id
@@ -50,7 +52,10 @@ AGENTS_IPS = ['172.31.18.151', '172.31.18.68', '172.31.26.147']
 assert len(SWITCH_NICS) == len(SWITCH_MACS) == len(AGENTS_MACS) == len(SWITCH_IPS) == len(
     AGENTS_IPS), 'input lists need to have same number of elements'
 
-CONST_DATA_SIZE = 46
+CONST_DATA_SIZE = 14 + 20 + 8 + 8
+
+if TIMESTAMPED:
+    CONST_DATA_SIZE += 8
 
 num_cores = int($BESS_CORES!'20')
 data_pkt_size = int($BESS_DATA_PKT_SIZE!'1024')
@@ -69,17 +74,37 @@ class MDCData(scapy.Packet):
     name = 'MulticastDataCenterData '
     fields_desc = [scapy.XByteField('type', 0),
                    scapy.ShortField('addr', 0),
-                   scapy.XByteField('label1', 0), # ToR -> Agg
-                   scapy.XByteField('label2', 0), # Agg -> ToR
+                   scapy.XByteField('label1', 0),  # ToR -> Agg
+                   scapy.XByteField('label2', 0),  # Agg -> ToR
                    scapy.XByteField('mode', 0),
-                   scapy.XByteField('label3', 0), # ToR -> Host
+                   scapy.XByteField('label3', 0),  # ToR -> Host
                    ]
+
+
+# Data pkt
+class MDCTimestampedData(scapy.Packet):
+    name = 'mDCTimestampedDataPkt '
+    fields_desc = [scapy.XByteField('type', 0),
+                   scapy.ShortField('addr', 0),
+                   scapy.XByteField('label1', 0),  # ToR -> Agg
+                   scapy.XByteField('label2', 0),  # Agg -> ToR
+                   scapy.XByteField('mode', 0),  # has an agent added a label for ToR->Host yet?
+                   scapy.XByteField('label3', 0),  # ToR -> Host
+                   scapy.XByteField('dummy', 0),  # dummy
+                   scapy.XLongField('timestamp', 0),  # timestamp
+                   ]
+
 
 # Data pkt template
 data_eth = scapy.Ether(src=SWITCH_MACS[0], dst=AGENTS_MACS[0], type=0x0800)
 data_ip = scapy.IP(src=SWITCH_IPS[0], dst=AGENTS_IPS[0])
 data_udp = scapy.UDP(sport=10001, dport=10002)
-unlabeled_data_mdc = MDCData(type=0xff, addr=0x1a1b, mode=0x0, label1=0x0, label2=0x0, label3=0x0)
+if TIMESTAMPED:
+    unlabeled_data_mdc = MDCTimestampedData(type=0xff, addr=0x1a1b, mode=0x0,
+                                            label1=0x0, label2=0x0, label3=0x0,
+                                            dummy=0x0, timestamp=0x0)
+else:
+    unlabeled_data_mdc = MDCData(type=0xff, addr=0x1a1b, mode=0x0, label1=0x0, label2=0x0, label3=0x0)
 data_payload = bytes(unlabeled_data_mdc) + b"\0" * (data_pkt_size - CONST_DATA_SIZE)
 unlabeled_data_pkt = data_eth / data_ip / data_udp / data_payload
 unlabeled_data_pkt_bytes = bytes(unlabeled_data_pkt)
@@ -93,7 +118,7 @@ for i in range(num_cores):
 # Define Ports and Queues
 ports = [PMDPort(pci=switch_nic) for switch_nic in SWITCH_NICS]
 
-#for port_id, port in enumerate(ports):
+# for port_id, port in enumerate(ports):
 #    qinc_name = 'port%d_inc0' % port_id
 #    qout_name = 'port%d_out0' % port_id
 port0_inc0::QueueInc(port=ports[0], qid=0)
@@ -107,13 +132,13 @@ mdc_switch::AwsMdcSwitch(switch_id=SWITCH_ID,
                          switch_macs=SWITCH_MACS,
                          switch_ips=SWITCH_IPS,
                          agents_macs=AGENTS_MACS,
-                         agents_ips=AGENTS_IPS)
+                         agents_ips=AGENTS_IPS,
+                         enable_timestamp=TIMESTAMPED)
 
 # Control plane of switch
 p = UnixSocketPort(name='p', path=LOCAL_SOCKET_PATH)
 PortInc(port='p') -> Queue() -> 8:mdc_switch
 mdc_switch:8 -> Queue() -> PortOut(port='p')
-
 
 # a hack way to connect ports
 nic_count = len(SWITCH_NICS)
