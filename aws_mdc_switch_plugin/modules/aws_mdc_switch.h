@@ -84,7 +84,7 @@ public:
 
 private:
     static const uint64_t kDefaultNsPerBucket = 100;
-    static const uint64_t kDefaultMaxNs = 10'000'000;  // 10 ms
+    static const uint64_t kDefaultMaxNs = 100'000'000;  // 100 ms
 
     gate_idx_t switch_id_;
     gate_idx_t active_agent_id_;
