@@ -31,22 +31,23 @@
 #ifndef BESS_MODULES_LABELLOOKUP_H_
 #define BESS_MODULES_LABELLOOKUP_H_
 
-#include <map>
 
 #include "module.h"
 #include "utils/bits.h"
 #include "utils/endian.h"
-#include "utils/time.h"
-#include "utils/checksum.h"
 #include "utils/ether.h"
 #include "utils/arp.h"
 #include "utils/ip.h"
 #include "utils/udp.h"
-#include "utils/histogram.h"
 #include "utils/exact_match_table.h"
 
-#include "pb/aws_mdc_switch_msg.pb.h"
+#include "pb/aws_mdc_dummy_receiver_msg.pb.h"
 
+
+//using bess::utils::ExactMatchField;
+//using bess::utils::ExactMatchKey;
+//using bess::utils::ExactMatchRuleFields;
+//using bess::utils::ExactMatchTable;
 using bess::utils::Error;
 
 using bess::utils::be16_t;
@@ -57,54 +58,31 @@ using bess::utils::Arp;
 using bess::utils::Ipv4;
 using bess::utils::Udp;
 
-#define AWS_MAX_INTF_COUNT 8
 
-class AwsMdcSwitch final : public Module {
+class AwsMdcDummyReceiver final : public Module {
 public:
   static const Commands cmds;
-  static const gate_idx_t kNumIGates = 1 + AWS_MAX_INTF_COUNT;
-  static const gate_idx_t kNumOGates = 1 + AWS_MAX_INTF_COUNT;
+  static const gate_idx_t kNumOGates = 1;
+  static const gate_idx_t kNumIGates = 1;
 
-  AwsMdcSwitch() : Module(), switch_id_(),
-                   active_agent_id_(0xffff), label_gates_(),
-                   switch_ips_(), switch_macs_(),
-                   agent_ips_(), agent_macs_(), last_new_agent_ns_(), first_pkt_fwd_ns_(),
-                   timestamp_en_(false),
-                   rtt_hist_(0, 1) {
+    AwsMdcDummyReceiver() : Module(),
+                     switch_ip_(), switch_mac_(), agent_ip_(), agent_mac_() {
       max_allowed_workers_ = Worker::kMaxWorkers;
   }
 
-  CommandResponse Init(const sample::aws_mdc_switch::pb::AwsMdcSwitchArg &arg);
+  CommandResponse Init(const sample::aws_mdc_dummy_receiver::pb::AwsMdcDummyReceiverArg &arg);
   void DeInit();
 
   void ProcessBatch(Context *ctx, bess::PacketBatch *batch) override;
 
-  CommandResponse CommandAdd(const sample::aws_mdc_switch::pb::AwsMdcSwitchCommandAddArg &arg);
   CommandResponse CommandClear(const bess::pb::EmptyArg &arg);
 
 private:
-    static const uint64_t kDefaultNsPerBucket = 100;
-    static const uint64_t kDefaultMaxNs = 10'000'000;  // 10 ms
+    be32_t switch_ip_;
+    Ethernet::Address switch_mac_;
 
-    gate_idx_t switch_id_;
-    gate_idx_t active_agent_id_;
-    uint8_t label_gates_[AWS_MAX_INTF_COUNT];
-
-    be32_t switch_ips_[AWS_MAX_INTF_COUNT];
-    Ethernet::Address switch_macs_[AWS_MAX_INTF_COUNT];
-
-    be32_t agent_ips_[AWS_MAX_INTF_COUNT];
-    Ethernet::Address agent_macs_[AWS_MAX_INTF_COUNT];
-
-    // Mapping between IP (key) and gate_idx
-    std::map<be32_t, gate_idx_t> entries_;
-
-    uint64_t last_new_agent_ns_;
-    uint64_t first_pkt_fwd_ns_;
-
-    bool timestamp_en_;
-    Histogram<uint64_t> rtt_hist_;
-
+    be32_t agent_ip_;
+    Ethernet::Address agent_mac_;
 };
 
 #endif // BESS_MODULES_LABELLOOKUP_H_

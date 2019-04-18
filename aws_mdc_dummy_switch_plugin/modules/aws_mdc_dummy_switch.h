@@ -45,7 +45,7 @@
 #include "utils/histogram.h"
 #include "utils/exact_match_table.h"
 
-#include "pb/aws_mdc_switch_msg.pb.h"
+#include "pb/aws_mdc_dummy_switch_msg.pb.h"
 
 using bess::utils::Error;
 
@@ -59,27 +59,26 @@ using bess::utils::Udp;
 
 #define AWS_MAX_INTF_COUNT 8
 
-class AwsMdcSwitch final : public Module {
+class AwsMdcDummySwitch final : public Module {
 public:
   static const Commands cmds;
-  static const gate_idx_t kNumIGates = 1 + AWS_MAX_INTF_COUNT;
-  static const gate_idx_t kNumOGates = 1 + AWS_MAX_INTF_COUNT;
+  static const gate_idx_t kNumIGates = 2;
+  static const gate_idx_t kNumOGates = 1;
 
-  AwsMdcSwitch() : Module(), switch_id_(),
-                   active_agent_id_(0xffff), label_gates_(),
+    AwsMdcDummySwitch() : Module(), switch_id_(),
+                   active_agent_id_(0),
                    switch_ips_(), switch_macs_(),
-                   agent_ips_(), agent_macs_(), last_new_agent_ns_(), first_pkt_fwd_ns_(),
-                   timestamp_en_(false),
+                   agent_ips_(), agent_macs_(), first_pkt_fwd_ns_(),
+                   timestamp_en_(true),
                    rtt_hist_(0, 1) {
       max_allowed_workers_ = Worker::kMaxWorkers;
   }
 
-  CommandResponse Init(const sample::aws_mdc_switch::pb::AwsMdcSwitchArg &arg);
+  CommandResponse Init(const sample::aws_mdc_dummy_switch::pb::AwsMdcDummySwitchArg &arg);
   void DeInit();
 
   void ProcessBatch(Context *ctx, bess::PacketBatch *batch) override;
 
-  CommandResponse CommandAdd(const sample::aws_mdc_switch::pb::AwsMdcSwitchCommandAddArg &arg);
   CommandResponse CommandClear(const bess::pb::EmptyArg &arg);
 
 private:
@@ -88,7 +87,6 @@ private:
 
     gate_idx_t switch_id_;
     gate_idx_t active_agent_id_;
-    uint8_t label_gates_[AWS_MAX_INTF_COUNT];
 
     be32_t switch_ips_[AWS_MAX_INTF_COUNT];
     Ethernet::Address switch_macs_[AWS_MAX_INTF_COUNT];
@@ -96,10 +94,6 @@ private:
     be32_t agent_ips_[AWS_MAX_INTF_COUNT];
     Ethernet::Address agent_macs_[AWS_MAX_INTF_COUNT];
 
-    // Mapping between IP (key) and gate_idx
-    std::map<be32_t, gate_idx_t> entries_;
-
-    uint64_t last_new_agent_ns_;
     uint64_t first_pkt_fwd_ns_;
 
     bool timestamp_en_;

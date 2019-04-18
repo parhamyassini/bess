@@ -1,0 +1,168 @@
+# Copyright (c) 2014-2017, The Regents of the University of California.
+# Copyright (c) 2016-2017, Nefeli Networks, Inc.
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+# list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+# this list of conditions and the following disclaimer in the documentation
+# and/or other materials provided with the distribution.
+#
+# * Neither the names of the copyright holders nor the names of their
+# contributors may be used to endorse or promote products derived from this
+# software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+
+import os
+import scapy.all as scapy
+
+TIMESTAMPED = True
+
+# short integer only
+SWITCH_ID = 0
+# PCI device id
+SWITCH_NICS = ['0000:7e:00.0', '0000:7f:00.0', '0000:80:00.0']
+# short integers only
+AGENTS_IDS = [0, 1, 2]
+# 1-byte labels only
+AGENTS_LABELS = [0x01, 0x02, 0x03]
+SWITCH_MACS = ['06:53:19:33:a6:10', '06:73:37:4b:29:e2', '06:a6:7e:72:37:92']
+AGENTS_MACS = ['06:99:06:19:c6:a2', '06:d4:ea:68:76:6e', '06:9f:da:98:a4:76']
+SWITCH_IPS = ['172.31.28.77', '172.31.18.52', '172.31.17.223']
+AGENTS_IPS = ['172.31.18.151', '172.31.18.68', '172.31.26.147']
+
+assert len(SWITCH_NICS) == len(SWITCH_MACS) == len(AGENTS_MACS) == len(SWITCH_IPS) == len(
+    AGENTS_IPS), 'input lists need to have same number of elements'
+
+CONST_DATA_SIZE = 14 + 20 + 8 + 8
+
+if TIMESTAMPED:
+    CONST_DATA_SIZE += 8
+
+num_cores = int($BESS_CORES!'20')
+data_pkt_size = int($BESS_DATA_PKT_SIZE!'1024')
+
+assert 64 <= data_pkt_size <= 1024, 'Data pkts needs to be in the range [64, 1024] in bytes'
+
+print('Core count = %d' % num_cores)
+print('Data pkt size = %d' % data_pkt_size)
+
+# Data pkt
+class MDCData(scapy.Packet):
+    name = 'MulticastDataCenterData '
+    fields_desc = [scapy.XByteField('type', 0),
+                   scapy.ShortField('addr', 0),
+                   scapy.XByteField('label1', 0),  # ToR -> Agg
+                   scapy.XByteField('label2', 0),  # Agg -> ToR
+                   scapy.XByteField('mode', 0),
+                   scapy.XByteField('label3', 0),  # ToR -> Host
+                   ]
+
+
+# Data pkt
+class MDCTimestampedData(scapy.Packet):
+    name = 'mDCTimestampedDataPkt '
+    fields_desc = [scapy.XByteField('type', 0),
+                   scapy.ShortField('addr', 0),
+                   scapy.XByteField('label1', 0),  # ToR -> Agg
+                   scapy.XByteField('label2', 0),  # Agg -> ToR
+                   scapy.XByteField('mode', 0),  # has an agent added a label for ToR->Host yet?
+                   scapy.XByteField('label3', 0),  # ToR -> Host
+                   scapy.XByteField('dummy', 0),  # dummy
+                   scapy.XLongField('timestamp', 0),  # timestamp
+                   ]
+
+# Data pkt template
+data_eth = scapy.Ether(src=SWITCH_MACS[0], dst=AGENTS_MACS[0], type=0x0800)
+data_ip = scapy.IP(src=SWITCH_IPS[0], dst=AGENTS_IPS[0])
+data_udp = scapy.UDP(sport=10001, dport=10002)
+if TIMESTAMPED:
+    unlabeled_data_mdc = MDCTimestampedData(type=0xff, addr=0x1a1b, mode=0x0,
+                                            label1=0x0, label2=0x0, label3=0x0,
+                                            dummy=0x0, timestamp=0x0)
+else:
+    unlabeled_data_mdc = MDCData(type=0xff, addr=0x1a1b, mode=0x0, label1=0x0, label2=0x0, label3=0x0)
+data_payload = bytes(unlabeled_data_mdc) + b"\0" * (data_pkt_size - CONST_DATA_SIZE)
+unlabeled_data_pkt = data_eth / data_ip / data_udp / data_payload
+unlabeled_data_pkt_bytes = bytes(unlabeled_data_pkt)
+
+# TODO: If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
+# TODO: this needs to depend on the CPU layout and where the NIC is.
+start_core = 0
+for i in range(num_cores):
+    bess.add_worker(wid=i, core=i + start_core)
+
+# Define Ports and Queues
+ports = [PMDPort(pci=switch_nic) for switch_nic in SWITCH_NICS]
+
+# for port_id, port in enumerate(ports):
+#    qinc_name = 'port%d_inc0' % port_id
+#    qout_name = 'port%d_out0' % port_id
+port0_inc0::QueueInc(port=ports[0], qid=0)
+port0_out0::QueueOut(port=ports[0], qid=0)
+port1_inc0::QueueInc(port=ports[1], qid=0)
+port1_out0::QueueOut(port=ports[1], qid=0)
+port2_inc0::QueueInc(port=ports[2], qid=0)
+port2_out0::QueueOut(port=ports[2], qid=0)
+
+mdc_switch::AwsMdcDummySwitch(switch_id=SWITCH_ID,
+                         switch_macs=SWITCH_MACS,
+                         switch_ips=SWITCH_IPS,
+                         agents_macs=AGENTS_MACS,
+                         agents_ips=AGENTS_IPS,
+                         enable_timestamp=TIMESTAMPED)
+
+# a hack way to connect ports
+nic_count = 1
+
+if nic_count >= 1:
+    print(mdc_switch)
+    port0_inc0 -> 0:mdc_switch
+    mdc_switch:0 -> q0::Queue() -> port0_out0
+if nic_count >= 2:
+    port1_inc0 -> 1:mdc_switch
+    mdc_switch:1 -> q1::Queue() -> port1_out0
+if nic_count >= 3:
+    port2_inc0 -> 2:mdc_switch
+    mdc_switch:2 -> q2::Queue() -> port2_out0
+if nic_count >= 4:
+    port3_inc0 -> 3:mdc_switch
+    mdc_switch:3 -> q3::Queue() -> port3_out0
+if nic_count >= 5:
+    port4_inc0 -> 4:mdc_switch
+    mdc_switch:4 -> q4::Queue() -> port4_out0
+if nic_count >= 6:
+    port5_inc0 -> 5:mdc_switch
+    mdc_switch:5 -> q5::Queue() -> port5_out0
+if nic_count >= 7:
+    port6_inc0 -> 6:mdc_switch
+    mdc_switch:6 -> q6::Queue() -> port6_out0
+
+
+# Traffic generator: this generates data pkts unlike the MdcPktGen that generate ctrl pkts
+# Recommended: Use when the NIC has at least 2 ports, and when you want to generate traffic using BESS
+# Data rate depends on the capacity (Gbps), and data_pkt_size and Ethernet framing overhead (bytes)
+tgen_pkt_rate = 1 * 1e9 / (8 * (data_pkt_size + 24))
+bess.add_tc('tgen', policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)})
+
+# Creates a source, and limits its pkt rate
+tgen_src::Source()
+tgen_src.attach_task('tgen')
+
+# Sends generated traffic on Port1
+tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> 1:mdc_switch
