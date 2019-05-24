@@ -63,7 +63,7 @@ public:
   static const gate_idx_t kNumIGates = 1;
   static const gate_idx_t kNumOGates = 1;
 
-    StemTSReader() : Module(), first_pkt_rec_ns_(), rtt_hist_(0, 1) {
+    StemTSReader() : Module(), enabled_(true), first_pkt_rec_ns_(), rtt_hist_(0, 1) {
       max_allowed_workers_ = Worker::kMaxWorkers;
   }
 
@@ -77,7 +77,7 @@ public:
 private:
     static const uint64_t kDefaultNsPerBucket = 100;
     static const uint64_t kDefaultMaxNs = 10'000'000;  // 10 ms
-
+    bool enabled_;
     uint64_t first_pkt_rec_ns_;
     Histogram<uint64_t> rtt_hist_;
 };

@@ -64,7 +64,7 @@ StemTSReader::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
             first_pkt_rec_ns_ = now_ns;
         }
 
-        if (*ts) {
+        if (*ts && enabled_) {
             // Pkt received
             uint64_t diff;
             if (now_ns >= *ts && *ts != 0) {
@@ -72,6 +72,7 @@ StemTSReader::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
                 rtt_hist_.Insert(diff);
                 // a hack to collect results
                 if (first_pkt_rec_ns_ && (now_ns - first_pkt_rec_ns_) >= 60'000'000'000) {
+                    enabled_ = false;
                     std::vector<double> latency_percentiles{50, 95, 99, 99.9, 99.99};
                     const auto &rtt = rtt_hist_.Summarize(latency_percentiles);
                     std::cout << rtt.avg;
