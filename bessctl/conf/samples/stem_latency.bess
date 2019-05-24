@@ -29,6 +29,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 DATA_RATE = 10  # Gbps
+CONST_DATA_SIZE = 14
 
 num_cores = int($BESS_CORES!'10')
 data_pkt_size = int($BESS_DATA_PKT_SIZE!'1024')
@@ -39,8 +40,9 @@ print('Core count = %d' % num_cores)
 print('Data pkt size = %d' % data_pkt_size)
 
 # Data pkt template
-data_payload = b"\0" * (data_pkt_size)
-data_pkt = data_payload
+data_eth = scapy.Ether(src='F8:F2:1E:13:CA:FC', dst='F8:F2:1E:13:CA:FC', type=0xdeda)
+data_payload = b"\0" * (data_pkt_size - CONST_DATA_SIZE)
+data_pkt = data_eth/data_payload
 data_pkt_bytes = bytes(data_pkt)
 
 
