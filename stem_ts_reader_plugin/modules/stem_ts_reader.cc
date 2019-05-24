@@ -37,6 +37,19 @@ const Commands StemTSReader::cmds = {
 
 CommandResponse
 StemTSReader::Init(const sample::stem_ts_reader::pb::StemTSReaderArg &) {
+    uint64_t latency_ns_max = kDefaultMaxNs;
+    uint64_t latency_ns_resolution = kDefaultNsPerBucket;
+    uint64_t quotient = latency_ns_max / latency_ns_resolution;
+    if ((latency_ns_max % latency_ns_resolution) != 0) {
+        quotient += 1;  // absorb any remainder
+    }
+    if (quotient > rtt_hist_.max_num_buckets() / 2) {
+        return CommandFailure(E2BIG, "excessive latency_ns_max / latency_ns_resolution");
+    }
+
+    size_t num_buckets = quotient;
+    rtt_hist_.Resize(num_buckets, latency_ns_resolution);
+
     return CommandSuccess();
 }
 
@@ -69,7 +82,8 @@ StemTSReader::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
             uint64_t diff;
             if (now_ns >= *ts && *ts != 0) {
                 diff = now_ns - *ts;
-                rtt_hist_.Insert(diff);
+                //std::cout << diff;
+		rtt_hist_.Insert(diff);
                 // a hack to collect results
                 if (first_pkt_rec_ns_ && (now_ns - first_pkt_rec_ns_) >= 60'000'000'000) {
                     enabled_ = false;
