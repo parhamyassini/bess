@@ -66,7 +66,7 @@ struct alignas(32) mdc_entry {
     union {
         struct {
             uint64_t addr : 48;
-            uint64_t label : 24;
+            uint64_t label : 32;
             uint64_t occupied : 1;
         };
         uint64_t entry;
@@ -85,11 +85,14 @@ struct mdc_table {
 class MdcReceiver final : public Module {
 public:
   static const Commands cmds;
-  static const gate_idx_t kNumOGates = 3;
+  static const gate_idx_t kNumOGates = 2;
+  static const gate_idx_t kNumIGates = 3;
 
-  MdcReceiver() : Module(), agent_id_(), mdc_table_() {
-      max_allowed_workers_ = Worker::kMaxWorkers;
-  }
+    MdcReceiver() : Module(), agent_id_(), agent_label_(), mdc_table_(),
+//                    switch_ip_(), switch_mac_(), agent_ip_(), agent_mac_(),
+                    emit_ping_pkt_(true), gen_ping_pkts_count_(0) {
+        max_allowed_workers_ = Worker::kMaxWorkers;
+    }
 
   CommandResponse Init(const sample::mdc_receiver::pb::MdcReceiverArg &arg);
   void DeInit();
@@ -100,8 +103,19 @@ public:
   CommandResponse CommandClear(const bess::pb::EmptyArg &arg);
 
 private:
-    uint32_t agent_id_;
-    struct mdc_table mdc_table_;
+    gate_idx_t agent_id_;
+    mdc_label_t agent_label_;
+
+    struct aws_mdc_table mdc_table_;
+
+//    be32_t switch_ip_;
+//    Ethernet::Address switch_mac_;
+//
+//    be32_t agent_ip_;
+//    Ethernet::Address agent_mac_;
+
+    bool emit_ping_pkt_;
+    uint64_t gen_ping_pkts_count_;
 };
 
 #endif // BESS_MODULES_LABELLOOKUP_H_
