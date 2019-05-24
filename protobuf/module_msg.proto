@@ -302,6 +302,16 @@ message PortIncCommandSetBurstArg {
 }
 
 /**
+ * The module SignalPortInc has a function `set_burst(...)` that allows you to specify the
+ * maximum number of packets to be stored in a single PacketBatch released by
+ * the module.
+ */
+message SignalPortIncCommandSetBurstArg {
+  uint64 burst = 1; /// The maximum "burst" of packets (ie, the maximum batch size)
+}
+
+
+/**
  * The module QueueInc has a function `set_burst(...)` that allows you to specify
  * the maximum number of packets to be stored in a single PacketBatch released
  * by the module.
@@ -755,6 +765,20 @@ message NoOpArg {
 message PortIncArg {
   string port = 1; /// The portname to connect to.
   bool prefetch = 2; /// Whether or not to prefetch packets from the port.
+}
+
+/**
+ * The SignalPortIncArg module connects to two physical or virtual ports
+ * and releases packets from port upon receiving a message from signal.
+ * SignalPortInc does not support multiqueueing.
+ *
+ * __Input Gates__: 0
+ * __Output Gates__: 1
+ */
+message SignalPortIncArg {
+  string port = 1; /// The portname to connect to.
+  bool prefetch = 2; /// Whether or not to prefetch packets from the port.
+  string signal = 3; /// The portname which will signal a file which should be printed from
 }
 
 /**

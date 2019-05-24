@@ -65,6 +65,21 @@ message UnixSocketPortArg {
   bool confirm_connect = 3;
 }
 
+message FileReaderPortArg {
+  /// This should be the full path to a file
+  string path = 1;
+
+  /// Minimum RX polling interval for system calls, when *idle*.
+  /// Use a negative number for unthrottled polling. If unspecified or 0,
+  /// it is set to 50,000 (50 microseconds, or 20k polls per second)
+  int64 min_rx_interval_ns = 2;
+
+  /// If set, the port driver will send a confirmation once
+  /// the port is connected.  This lets pybess avoid a race during
+  /// testing.  See bessctl/test_utils.py for details.
+  bool confirm_connect = 3;
+}
+
 message VPortArg {
   string ifname = 1;
   oneof cpid {
