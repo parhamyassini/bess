@@ -33,13 +33,14 @@ import socket
 import scapy.all as scapy
 
 ITERATION = 10
-PORT_NAME = 'p'
+PORT_NAME = 'stream'
 
 # NOTE: You can disable this option to use a conventional socket path based on
 # the filesystem. In that case, you must have (root) access to the socket path.
-ABSTRACT_SOCKET_ADDRESS = True
+ABSTRACT_SOCKET_ADDRESS = False
 
 SOCKET_PATH = '/tmp/bess_unix_%s' % PORT_NAME
+print("Socket path:", SOCKET_PATH)
 
 def gen_packet(src_ip, dst_ip):
     eth = scapy.Ether(src='02:1e:67:9f:4d:ae', dst='06:16:3e:1b:72:32')
@@ -78,6 +79,10 @@ for i in range(ITERATION):
     print('%2d/%2d\tOriginal: %s' % (i + 1, ITERATION, original.summary()))
     print('\tModified: %s' % pkt.summary())
 
-    time.sleep(1)
+    time.sleep(5)
+
+print("COMPLETE")
+s.send(b'complete')
 
 bess.pause_all()
+
