@@ -10,7 +10,7 @@ class SignalFileReader final : public Module {
     public:
         CommandResponse Init(const bess::pb::SignalFileReaderArg &arg);
         int Resize(int slots);
-        
+
         void ProcessBatch(Context *ctx, bess::PacketBatch *batch);
         struct task_result RunTask(Context *ctx, bess::PacketBatch *batch,
 void *arg) override;
@@ -20,6 +20,7 @@ void *arg) override;
         // char sharedPath_[PATH_MAX + 1];
         // Queue capacity
         uint64_t size_;
+        unsigned int h_size_;
 
 };
 

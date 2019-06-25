@@ -62,11 +62,10 @@ int SignalFileReader::Resize(int slots) {
 
 
 
-
-
 CommandResponse SignalFileReader::Init(const bess::pb::SignalFileReaderArg &arg){
     LOG(INFO) << "This is the Signal File Reader module INIT";
     LOG(INFO) << "Configured arg h_size: " << arg.h_size();
+    h_size_ = arg.h_size();
 
     int ret = Resize(64);
     if(ret){
@@ -138,8 +137,9 @@ struct task_result SignalFileReader::RunTask(
   bess::PacketBatch *batch,
   __attribute__((unused)) void *arg) {
 
-    static char local_working_path[PATH_MAX + 1];
-    static off_t last_path_offset = 0;
+    static int lastOpenFd;
+    static bool workingOnFd = false;
+
     struct task_result taskResultVal;
 
 
@@ -148,41 +148,49 @@ struct task_result SignalFileReader::RunTask(
 
     static int totalSentPackets = 0;
 
-    if(last_path_offset != 0){//In progress
+    if(workingOnFd){//In progress
         workToDo = true;
     }
     else if(llring_dequeue(queue_,  &ringBufObj) == 0){
         LOG(INFO) << "Got path from the queue!!!: " << (char*)ringBufObj;
-        strncpy(local_working_path, (char*)ringBufObj, PATH_MAX);
-        // delete (void*)ringBufObj;
-        workToDo = true;
+
+        if((lastOpenFd = open((char*)ringBufObj, O_RDONLY)) == -1){
+            LOG(INFO) << "Failed to open file \"" << (char*)ringBufObj << "\"";
+            workToDo = false;
+        }
+        else
+        {
+            workToDo = true;
+        }
+        LOG(INFO) << "Going to delete: \"" << (char*)ringBufObj << "\" " << (void*)ringBufObj;
+        delete (char*)ringBufObj;
     }
 
 
     // llring_addr_t ringBufObj;
     // int dequeueRes = llring_dequeue(queue_,  ringBufObj);
     if(workToDo){
-        int read_fd;
+        // int lastOpenFd;
 
-        if((read_fd = open(local_working_path, O_RDONLY)) == -1){
-            LOG(INFO) << "Failed to open file \"" << local_working_path << "\"";
-            goto exitEmpty;
-        }
+        // if((lastOpenFd = open(local_working_path, O_RDONLY)) == -1){
+        //     LOG(INFO) << "Failed to open file \"" << local_working_path << "\"";
+        //     goto exitEmpty;
+        // }
 
         uint8_t memoryBuf[MAX_TOTAL_PACKET_SIZE];
         ssize_t readSz = -1; 
 
         unsigned int pktSentCnt = 0u;
 
-        lseek(read_fd, last_path_offset, SEEK_SET);
-        while(/*(readSz != 0) && */(! batch->full()) && (readSz = read(read_fd, memoryBuf, MAX_TOTAL_PACKET_SIZE)) > 0){
+        // lseek(lastOpenFd, last_path_offset, SEEK_SET);
+        while(/*(readSz != 0) && */(! batch->full()) && (readSz = read(lastOpenFd, memoryBuf, MAX_TOTAL_PACKET_SIZE - h_size_)) > 0){
             //Allocate that packet and process it.
-            last_path_offset += readSz;
+            // last_path_offset += readSz;
             bess::Packet *newPkt = current_worker.packet_pool()->Alloc();
 
             // LOG(INFO) << "Allocated pkt: " << newPkt;
             // buf.add(pkt);
-            char *newPtr = static_cast<char *>(newPkt->buffer()) + SNBUF_HEADROOM;
+            char *newPtr = static_cast<char *>(newPkt->buffer()) + SNBUF_HEADROOM + h_size_;
 
             memcpy(newPtr, memoryBuf, readSz);//Read directly into the packet -- don't copy
 
@@ -197,9 +205,13 @@ struct task_result SignalFileReader::RunTask(
         totalSentPackets += pktSentCnt;
         if (readSz == 0) {
             // LOG(INFO) << "readSz == 0";
-            last_path_offset = 0;
+            // last_path_offset = 0;
             LOG(INFO) << "Total packets sent: " << totalSentPackets;
             totalSentPackets = 0;
+            workingOnFd = false;
+            if(close(lastOpenFd) != 0){
+                LOG(INFO) << "Error could not close fd " << lastOpenFd;
+            }
         }
         // LOG(INFO) << "Packet send cnt: " << pktSentCnt;
 
@@ -211,11 +223,10 @@ struct task_result SignalFileReader::RunTask(
         taskResultVal.bits = 8*pktSentCnt;
         taskResultVal.block = false;
 
-        close(read_fd);
+        
         return taskResultVal;
     }
 
-exitEmpty:
     taskResultVal.packets = 0u;
     taskResultVal.bits = 0;
     taskResultVal.block = true;

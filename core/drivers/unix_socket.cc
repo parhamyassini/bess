@@ -34,6 +34,7 @@
 
 #include <cerrno>
 #include <cstring>
+#include <iostream>
 
 #include "unix_socket.h"
 
@@ -198,7 +199,7 @@ int UnixSocketPort::RecvPackets(queue_t qid, bess::Packet **pkts, int cnt) {
 
     // Datagrams larger than 2KB will be truncated.
     int ret = recv(client_fd, pkt->data(), SNBUF_DATA, 0);
-
+    //LOG(INFO) << "Unix recv pkt: " << pkt->data();
     if (ret > 0) {
       pkt->append(ret);
       pkts[received++] = pkt;
@@ -229,6 +230,7 @@ int UnixSocketPort::RecvPackets(queue_t qid, bess::Packet **pkts, int cnt) {
 int UnixSocketPort::SendPackets(queue_t qid, bess::Packet **pkts, int cnt) {
   int sent = 0;
   int client_fd = client_fd_;
+  // LOG(INFO) << "Unix SendPackets, cnd: " << cnt << " fd: " << client_fd;
 
   DCHECK_EQ(qid, 0);
 
@@ -251,9 +253,10 @@ int UnixSocketPort::SendPackets(queue_t qid, bess::Packet **pkts, int cnt) {
     for (int j = 0; j < nb_segs; j++) {
       iov[j].iov_base = pkt->head_data();
       iov[j].iov_len = pkt->head_len();
-      pkt = pkt->next();
+      pkt = pkt->next();      
     }
 
+    // LOG(INFO) << "Unix send pkts: " << (char*)iov[0].iov_base;//This is the one that's useful for debugging
     ret = sendmsg(client_fd, &msg, 0);
     if (ret < 0) {
       break;
