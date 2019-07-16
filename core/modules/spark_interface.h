@@ -85,6 +85,18 @@ typedef struct _msgToken {
 	struct timeval tv; // timeval when MsgToken is created (stats only)
 } MsgToken;
 
+typedef struct _msgReadRpl { /* reply to the local socket */
+	uint32_t code; // the status of the write request
+	uint32_t padding;
+	databyte_t start;     // the byte pointer of the first byte in the received file
+	databyte_t jump;      //
+	databyte_t file_size;
+} MsgReadRpl;
+
+typedef struct _msgDelRpl { /* reply to the local socket */
+	uint32_t code; // the status of the write request
+} MsgDelRpl;
+
 #define MSG_HDRLEN          (sizeof(MsgHdr))
 #define DATA_HDRLEN         (sizeof(DataHdr))
 #define DATA_HDR_OFFSET     (ETH_HLEN + IP4_HDRLEN + UDP_HDRLEN)
@@ -115,11 +127,16 @@ class SparkInterface final : public Module {
         int addMsgToQueue(BcdID *bcd_id_p, msg_type_t type, char *msg_payload, bytes_t msg_payload_len, uint8_t padding);
         
         //Variables
-        int Resize(int slots);
+        int Resize(int slots, struct llring** queue_pp, uint64_t *new_size_p);
         struct llring *queue_;
+        struct llring *file_queue_;
         // char sharedPath_[PATH_MAX + 1];
         // Queue capacity
 		uint64_t size_;
+		uint64_t file_size_;
+
+        gate_idx_t spark_gate_;
+        gate_idx_t file_gate_;
 };
 
 /* message between UNIX domain socket and agent*/

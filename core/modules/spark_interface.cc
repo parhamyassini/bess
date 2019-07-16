@@ -73,8 +73,8 @@ void BcdIdtoFilename(const BcdID *bcd_id_p, char *buf_p) {
     return;
 }
 
-int SparkInterface::Resize(int slots) {
-  struct llring *old_queue = queue_;
+int SparkInterface::Resize(int slots, struct llring** queue_pp, uint64_t *new_size_p) {
+  struct llring *old_queue = *queue_pp;
   struct llring *new_queue;
 
   int bytes = llring_bytes_with_slots(slots);
@@ -106,8 +106,8 @@ int SparkInterface::Resize(int slots) {
     std::free(old_queue);
   }
 
-  queue_ = new_queue;
-  size_ = slots;
+  *queue_pp = new_queue;
+  *new_size_p = slots;
 
   return 0;
 }
@@ -119,17 +119,24 @@ CommandResponse SparkInterface::Init(const bess::pb::SparkInterfaceArg &arg){
 //    LOG(INFO) << "Configured arg h_size: " << arg.h_size();
 //    h_size_ = arg.h_size();
 //
-    int ret = Resize(64);
+    int ret = Resize(64, &queue_, &size_);
     if(ret){
         return CommandFailure(-ret);
     }
-//
-//
-//
+    ret = Resize(64, &file_queue_, &file_size_);
+    if(ret){
+        return CommandFailure(-ret);
+    }
+
+
+
     if(RegisterTask(nullptr) == INVALID_TASK_ID){
         return CommandFailure(ENOMEM, "Task creation failed");
     }
-//
+
+    spark_gate_ = arg.spark_gate();
+    file_gate_ = arg.file_gate();
+
     return CommandSuccess();
 }
 
@@ -165,15 +172,15 @@ void SparkInterface::ProcessBatch(__attribute__((unused)) Context *ctx, bess::Pa
         parseMsgHdr(&msgHdr_dat, ptr);
 
 
-        LOG(INFO) << "recvd len: " <<  msgHdr_dat.len_dat.value() << " total length: " << totalLength;
-        LOG(INFO) << "MSB data recv: " << std::hex <<  msgHdr_dat.msb_dat.value() << " LSB data recv: " << std::hex <<  msgHdr_dat.lsb_dat.value();
-        LOG(INFO) << "id data recv: " <<  msgHdr_dat.id_dat.value() << " type data recv: " <<  msgHdr_dat.type_dat.value();
-        LOG(INFO) << "time_sec_dat: " <<  msgHdr_dat.time_sec_dat.value() << " time_usec_dat: " <<  msgHdr_dat.time_usec_dat.value();
+        //LOG(INFO) << "recvd len: " <<  msgHdr_dat.len_dat.value() << " total length: " << totalLength;
+        //LOG(INFO) << "MSB data recv: " << std::hex <<  msgHdr_dat.msb_dat.value() << " LSB data recv: " << std::hex <<  msgHdr_dat.lsb_dat.value();
+        //LOG(INFO) << "id data recv: " <<  msgHdr_dat.id_dat.value() << " type data recv: " <<  msgHdr_dat.type_dat.value();
+        //LOG(INFO) << "time_sec_dat: " <<  msgHdr_dat.time_sec_dat.value() << " time_usec_dat: " <<  msgHdr_dat.time_usec_dat.value();
 
         uint8_t buf[MAX_PKT_LEN - STD_HDR_LEN];
         memcpy(buf, ptr+STD_HDR_LEN, msgHdr_dat.len_dat.value() - STD_HDR_LEN);
 
-        LOG(INFO) << "Memory sent: " << HexDump(buf, msgHdr_dat.len_dat.value() - STD_HDR_LEN);
+        //LOG(INFO) << "Memory sent: " << HexDump(buf, msgHdr_dat.len_dat.value() - STD_HDR_LEN);
 
         //msgBytes* responseMsg = NULL;
         MsgToken* responseMsg = NULL;
@@ -181,7 +188,8 @@ void SparkInterface::ProcessBatch(__attribute__((unused)) Context *ctx, bess::Pa
         bcd_id_val.app_id  = {msgHdr_dat.msb_dat.value(), msgHdr_dat.lsb_dat.value()};
         bcd_id_val.data_id = msgHdr_dat.id_dat.value();
 
-        char msg[] = "TestMsg";
+		static int numberOfWrts = 0;
+
 		//bess::utils::be32_t responseCode;//(REPLY_SUCCESS);
 		int responseCode;
         switch(msgHdr_dat.type_dat.value()){
@@ -200,12 +208,51 @@ void SparkInterface::ProcessBatch(__attribute__((unused)) Context *ctx, bess::Pa
                     char fullPath[FILENAME_LEN] = {0};
                     BcdIdtoFilename(&bcd_id_val, fullPath);
                     LOG(INFO) << "Going to use path of: " << fullPath;
-					LOG(INFO) << "Not sending reply";
 					responseCode = htonl(REPLY_SUCCESS);
+					numberOfWrts++;
 					addMsgToQueue(&bcd_id_val, MSG_WRT_RPL, (char*)&responseCode, sizeof(int), 0);
+                    char* file_path = (char*)malloc(strlen(fullPath) + 1);
+                    strcpy(file_path, fullPath);
+                    llring_enqueue(file_queue_, file_path);
                 }
                 break;
-
+			case (MSG_READ_REQ):
+				{
+					LOG(INFO) << "Recveived MSG_READ_REQ";
+					//Check if we've already receive this file
+					//For testing, assume we have.
+					if(1==1){
+						responseCode = htonl(REPLY_SUCCESS);
+						char fullPath[FILENAME_LEN] = {0};
+						BcdIdtoFilename(&bcd_id_val, fullPath);
+						FILE* fp = fopen(fullPath, "r");
+						if(fp == NULL){
+							LOG(INFO) << "File: " << fullPath << " failed to open";
+							LOG(ERROR) << "File: " << fullPath << " failed to open";
+							return;
+						}
+						fseek(fp, 0L, SEEK_END);
+						uint64_t filesize = ftell(fp);
+						uint64_t filesize_half = filesize >> 1;
+						LOG(INFO) << "Filename: \"" << fullPath << "\" size: " << filesize << " filesize_half: " << filesize_half;
+						fclose(fp);
+						MsgReadRpl mr = { .code = htonl(REPLY_SUCCESS), .padding = 0, .start = htobe64(0), .jump = htobe64(filesize_half), .file_size = htobe64(filesize) };
+						addMsgToQueue(&bcd_id_val, MSG_READ_RPL, (char*)&mr, sizeof(MsgReadRpl), 0);
+					}
+				}
+				break;
+			case (MSG_DEL_REQ):
+				{
+                    char fullPath[FILENAME_LEN] = {0};
+                    BcdIdtoFilename(&bcd_id_val, fullPath);
+                    LOG(INFO) << "Going to delete file: \"" << fullPath << "\"";
+                    if(remove(fullPath) != 0){
+                        LOG(INFO) << "Failed to remove specified file!";
+                    }
+                    MsgDelRpl mr = { .code = htonl(REPLY_SUCCESS) };
+                    addMsgToQueue(&bcd_id_val, MSG_DEL_RPL, (char*)&mr, sizeof(MsgDelRpl), 0);
+				}
+				break;
             default:
                 LOG(INFO) << "Received message of unknown type. ID: " << msgHdr_dat.type_dat.value();
         }
@@ -263,12 +310,11 @@ struct task_result SparkInterface::RunTask(
     llring_addr_t ringBufObj;
     int pktSentCnt = 0;
     if(llring_dequeue(queue_, &ringBufObj) == 0) {
-        LOG(INFO) << "Got item out of queue";
+        //LOG(INFO) << "Got item out of queue";
         MsgToken* fromQueue = (MsgToken*)ringBufObj;
-        LOG(INFO) << "Got fromQueue: " << HexDump(fromQueue->buf_p, fromQueue->msg_len);
+        //LOG(INFO) << "Got fromQueue: " << HexDump(fromQueue->buf_p, fromQueue->msg_len);
         //bess::Packet *newPkt = current_worker.packet_pool()->Alloc();
         int i = 0;
-        LOG(INFO) << "Initial count: " << batch->cnt();
 
         char *newPtr = static_cast<char *>(batch->pkts()[i]->buffer()) + SNBUF_HEADROOM;
 
@@ -293,6 +339,23 @@ struct task_result SparkInterface::RunTask(
         
         //LOG(INFO) << "Got: \"" << fromQueue->pkt << "\" len: " << fromQueue->len;
     }
+    //else if(llring_dequeue(file_queue_, &ringBufObj) == 0) {
+    //    LOG(INFO) << "=========================================";
+    //    LOG(INFO) << "Got something off the file_queue: \"" << (char*)ringBufObj;
+    //    LOG(INFO) << "=========================================";
+
+    //    bess::Packet *newPkt = current_worker.packet_pool()->Alloc();
+    //    char *newPtr = static_cast<char *>(newPkt->buffer()) + SNBUF_HEADROOM;
+    //    memcpy(newPtr, ringBufObj, strlen((char*)ringBufObj));
+
+    //    EmitPacket(ctx, newPkt, file_gate_);
+    //    free(ringBufObj);
+
+    //    pktSentCnt++;
+    //    taskResultVal.packets = pktSentCnt;
+    //    taskResultVal.bits = 8*pktSentCnt;
+    //    taskResultVal.block = false;
+    //}
 
 //
 //

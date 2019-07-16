@@ -239,7 +239,7 @@ int UnixStreamSocketPort::RecvPackets(queue_t qid,__attribute__((unused)) bess::
       bufPosition += ret;
 
 
-      LOG(INFO) << "Message ret: " << ret << " remaining bytes: " << remainingBytes << " position: " << bufPosition;
+      //LOG(INFO) << "Message ret: " << ret << " remaining bytes: " << remainingBytes << " position: " << bufPosition;
 
 
 
@@ -247,7 +247,7 @@ int UnixStreamSocketPort::RecvPackets(queue_t qid,__attribute__((unused)) bess::
         memcpy(pkt->data(), packetDataBuf, bufPosition);
 
         pkt->append(bufPosition);
-        LOG(INFO) << pkt->Dump();
+        //LOG(INFO) << pkt->Dump();
         pkts[received++] = pkt;
         ////continue;
 

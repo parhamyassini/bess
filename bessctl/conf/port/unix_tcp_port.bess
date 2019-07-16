@@ -41,7 +41,7 @@ print("This is the signal file test.")
 u = UnixStreamSocketPort(name='u', path="/home/hadoop/domain_socket_file")
 v = UnixSocketPort(name='v', path="/tmp/bess_unix_u")
 
-si = SparkInterface()
+si = SparkInterface(spark_gate=0, file_gate=1)
 
 #PortInc(port='u') -> SignalFileReader(h_size=1) -> RandomUpdate(fields=[{'offset': 0, 'size': 1, 'min': 0x41, 'max': 0x5a}]) -> PortOut(port='u')
 
@@ -49,7 +49,8 @@ si = SparkInterface()
 
 #PortInc(port='u') -> PortOut(port='v')
 #PortInc(port='u') -> si -> PortOut(port='v')
-PortInc(port='u') -> si -> PortOut(port='u')
+PortInc(port='u') -> si:0 -> PortOut(port='u')
+#si:1 -> Sink()
 #PortInc(port='u') -> SignalFileReader(h_size=1)-> m -> SignalFileWriter(h_size=1)
 
 #bess.resume_all()

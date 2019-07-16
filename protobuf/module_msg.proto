@@ -1212,11 +1212,12 @@ message SignalFileReaderArg {
 }
 
 /**
- * This module triggers the reading of a specific file onto the module's
- * output when triggered from the module's input.
+ * This module handles communication to spark and triggering the file reader
  *
  * __Input Gates__: 1
- * __Output Gates__: 1
+ * __Output Gates__: 2
  */
 message SparkInterfaceArg{
+  uint32 spark_gate = 1; /// The gate number to send spark packets to
+  uint32 file_gate  = 2; /// The gate number to send file trigger packets to
 }
