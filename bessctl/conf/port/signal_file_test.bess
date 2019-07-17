@@ -35,16 +35,16 @@ import scapy.all as scapy
 #SOCKET_PATH = '/tmp/bess_unix_%s' % PORT_NAME
 
 FILE_PATH= '/tmp/testSendFile.dat'
-print("File path:", FILE_PATH)
+print("File path: ", FILE_PATH)
 print("This is the signal file test.")
 
 u = UnixSocketPort(name='u', path="/tmp/bess_unix_u")
 
 #PortInc(port='u') -> SignalFileReader(h_size=1) -> RandomUpdate(fields=[{'offset': 0, 'size': 1, 'min': 0x41, 'max': 0x5a}]) -> PortOut(port='u')
 
-m = Measure()
+#m = Measure()
 
-PortInc(port='u') -> SignalFileReader(h_size=1)-> m -> PortOut(port='u')
+PortInc(port='u') -> SignalFileReader(h_size=256)-> PortOut(port='u')
 #PortInc(port='u') -> SignalFileReader(h_size=1)-> m -> SignalFileWriter(h_size=1)
 
 bess.resume_all()
@@ -53,10 +53,10 @@ bess.resume_all()
 bess.pause_all()
 
 
-while(True):
-    print(m.get_summary().packets)
-    m.get_summary(clear=True)
-    bess.resume_all()
-    time.sleep(1)
-    bess.pause_all()
+# while(True):
+#     print(m.get_summary().packets)
+#     m.get_summary(clear=True)
+#     bess.resume_all()
+#     time.sleep(1)
+#     bess.pause_all()
 

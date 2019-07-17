@@ -185,29 +185,25 @@ struct task_result SignalFileReader::RunTask(
         unsigned int pktSentCnt = 0u;
 
         // lseek(lastOpenFd, last_path_offset, SEEK_SET);
-        while(/*(readSz != 0) && */(! batch->full()) && (readSz = read(lastOpenFd, memoryBuf, MAX_TOTAL_PACKET_SIZE - h_size_)) > 0){
+        while((! batch->full()) && (readSz = read(lastOpenFd, memoryBuf, MAX_TOTAL_PACKET_SIZE - h_size_)) > 0){
             //Allocate that packet and process it.
-            // last_path_offset += readSz;
             bess::Packet *newPkt = current_worker.packet_pool()->Alloc();
 
-            // LOG(INFO) << "Allocated pkt: " << newPkt;
-            // buf.add(pkt);
             char *newPtr = static_cast<char *>(newPkt->buffer()) + SNBUF_HEADROOM + h_size_;
+
+            memset(newPtr - h_size_, 0, MAX_TOTAL_PACKET_SIZE);
 
             memcpy(newPtr, memoryBuf, readSz);//Read directly into the packet -- don't copy
 
 
-            newPkt->set_data_len(readSz);
-            newPkt->set_total_len(readSz);
+            newPkt->set_data_len(readSz + h_size_);
+            newPkt->set_total_len(readSz + h_size_);
 
             batch->add(newPkt);
-            // RunNextModule(ctx, batch);
             pktSentCnt++;
         }
         totalSentPackets += pktSentCnt;
         if (readSz == 0) {
-            // LOG(INFO) << "readSz == 0";
-            // last_path_offset = 0;
             LOG(INFO) << "Total packets sent: " << totalSentPackets;
             totalSentPackets = 0;
             workingOnFd = false;
