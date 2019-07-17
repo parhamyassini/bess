@@ -117,19 +117,22 @@ typedef struct _msgDelRpl { /* reply to the local socket */
 
 class SparkInterface final : public Module {
     public:
+        static const gate_idx_t kNumIGates = 1;
+        static const gate_idx_t kNumOGates = 2;
         CommandResponse Init(const bess::pb::SparkInterfaceArg &arg);
 
         void ProcessBatch(Context *ctx, bess::PacketBatch *batch);
-        struct task_result RunTask(Context *ctx, bess::PacketBatch *batch,
-            void *arg) override;
+        //struct task_result RunTask(Context *ctx, bess::PacketBatch *batch,
+        //    void *arg) override;
 
     private:
-        int addMsgToQueue(BcdID *bcd_id_p, msg_type_t type, char *msg_payload, bytes_t msg_payload_len, uint8_t padding);
+        int addMsgToQueue(BcdID *bcd_id_p, msg_type_t type, char *msg_payload, bytes_t msg_payload_len, uint8_t padding, Context *ctx);
+        void SendToFileGate(char* data, int msg_len, Context *ctx);
         
         //Variables
-        int Resize(int slots, struct llring** queue_pp, uint64_t *new_size_p);
-        struct llring *queue_;
-        struct llring *file_queue_;
+        //int Resize(int slots, struct llring** queue_pp, uint64_t *new_size_p);
+        //struct llring *queue_;
+        //struct llring *file_queue_;
         // char sharedPath_[PATH_MAX + 1];
         // Queue capacity
 		uint64_t size_;
