@@ -73,45 +73,6 @@ void BcdIdtoFilename(const BcdID *bcd_id_p, char *buf_p) {
     return;
 }
 
-//int SparkInterface::Resize(int slots, struct llring** queue_pp, uint64_t *new_size_p) {
-//  struct llring *old_queue = *queue_pp;
-//  struct llring *new_queue;
-//
-//  int bytes = llring_bytes_with_slots(slots);
-//
-//  new_queue =
-//      reinterpret_cast<llring *>(aligned_alloc(alignof(llring), bytes));
-//  if (!new_queue) {
-//    return -ENOMEM;
-//  }
-//
-//  int ret = llring_init(new_queue, slots, 0, 1);
-//  if (ret) {
-//    std::free(new_queue);
-//    LOG(INFO) << "Init llring failed with ret: " << ret;
-//    return -EINVAL;
-//  }
-//
-//  /* migrate packets from the old queue */
-//  if (old_queue) {
-//    bess::Packet *pkt;
-//
-//    while (llring_sc_dequeue(old_queue, (void **)&pkt) == 0) {
-//      ret = llring_sp_enqueue(new_queue, pkt);
-//      if (ret == -LLRING_ERR_NOBUF) {
-//        bess::Packet::Free(pkt);
-//      }
-//    }
-//
-//    std::free(old_queue);
-//  }
-//
-//  *queue_pp = new_queue;
-//  *new_size_p = slots;
-//
-//  return 0;
-//}
-
 void SparkInterface::SendToFileGate(char* data, int msg_len, Context *ctx){
     bess::Packet *newPkt = current_worker.packet_pool()->Alloc();
     int i = 0;
@@ -131,25 +92,6 @@ void SparkInterface::SendToFileGate(char* data, int msg_len, Context *ctx){
 
 
 CommandResponse SparkInterface::Init(const bess::pb::SparkInterfaceArg &arg){
-//    LOG(INFO) << "This is the Signal File Reader module INIT";
-//    LOG(INFO) << "Configured arg h_size: " << arg.h_size();
-//    h_size_ = arg.h_size();
-//
-    //int ret = Resize(64, &queue_, &size_);
-    //if(ret){
-    //    return CommandFailure(-ret);
-    //}
-    //ret = Resize(64, &file_queue_, &file_size_);
-    //if(ret){
-    //    return CommandFailure(-ret);
-    //}
-
-
-
-    //if(RegisterTask(nullptr) == INVALID_TASK_ID){
-    //    return CommandFailure(ENOMEM, "Task creation failed");
-    //}
-
     spark_gate_ = arg.spark_gate();
     file_gate_ = arg.file_gate();
 
