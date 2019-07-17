@@ -128,6 +128,8 @@ void SignalFileReader::ProcessBatch(__attribute__((unused)) Context *ctx, bess::
         int enqueueRes = llring_enqueue(queue_, temporaryPathPtr);
 
         LOG(INFO) << "Enqueue result: " << enqueueRes;
+
+        bess::Packet::Free(pkt);
     }
     batch->clear();
 }
