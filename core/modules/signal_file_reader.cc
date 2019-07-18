@@ -169,33 +169,21 @@ struct task_result SignalFileReader::RunTask(
     }
 
 
-    // llring_addr_t ringBufObj;
-    // int dequeueRes = llring_dequeue(queue_,  ringBufObj);
     if(workToDo){
-        // int lastOpenFd;
-
-        // if((lastOpenFd = open(local_working_path, O_RDONLY)) == -1){
-        //     LOG(INFO) << "Failed to open file \"" << local_working_path << "\"";
-        //     goto exitEmpty;
-        // }
-
         uint8_t memoryBuf[MAX_TOTAL_PACKET_SIZE];
         ssize_t readSz = -1; 
 
         unsigned int pktSentCnt = 0u;
 
+        //Allocate the first packet and create a pointer to the data
         bess::Packet *newPkt = current_worker.packet_pool()->Alloc();
 
         char *newPtr = static_cast<char *>(newPkt->buffer()) + SNBUF_HEADROOM + h_size_;
 
         // lseek(lastOpenFd, last_path_offset, SEEK_SET);
         while((! batch->full()) && (readSz = read(lastOpenFd, newPtr, MAX_TOTAL_PACKET_SIZE - h_size_)) > 0){
-            //Allocate that packet and process it.
 
             memset(newPtr - h_size_, 0, h_size_);
-
-            //memcpy(newPtr, memoryBuf, readSz);//Read directly into the packet -- don't copy
-
 
             newPkt->set_data_len(readSz + h_size_);
             newPkt->set_total_len(readSz + h_size_);
@@ -218,7 +206,6 @@ struct task_result SignalFileReader::RunTask(
                 LOG(INFO) << "Error could not close fd " << lastOpenFd;
             }
         }
-        // LOG(INFO) << "Packet send cnt: " << pktSentCnt;
 
         if(pktSentCnt > 0){
             RunNextModule(ctx, batch);
