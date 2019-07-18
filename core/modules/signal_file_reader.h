@@ -6,6 +6,8 @@
 #include <limits.h>
 #include "../kmod/llring.h"
 
+#define MAX_TOTAL_PACKET_SIZE (1250)
+
 class SignalFileReader final : public Module {
     public:
         CommandResponse Init(const bess::pb::SignalFileReaderArg &arg);
@@ -21,6 +23,7 @@ void *arg) override;
         // Queue capacity
         uint64_t size_;
         unsigned int h_size_;
+        uint8_t templ_[MAX_TOTAL_PACKET_SIZE];
 
 };
 

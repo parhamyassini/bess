@@ -44,7 +44,9 @@ u = UnixSocketPort(name='u', path="/tmp/bess_unix_u")
 
 #m = Measure()
 
-PortInc(port='u') -> SignalFileReader(h_size=256)-> PortOut(port='u')
+temp = bytes("TTTT")
+
+PortInc(port='u') -> SignalFileReader(template=temp)-> PortOut(port='u')
 #PortInc(port='u') -> SignalFileReader(h_size=1)-> m -> SignalFileWriter(h_size=1)
 
 bess.resume_all()

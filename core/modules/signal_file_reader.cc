@@ -19,8 +19,6 @@
 
 // #include "../module.h"
 
-#define MAX_TOTAL_PACKET_SIZE (1250)
-
 int SignalFileReader::Resize(int slots) {
   struct llring *old_queue = queue_;
   struct llring *new_queue;
@@ -64,8 +62,18 @@ int SignalFileReader::Resize(int slots) {
 
 CommandResponse SignalFileReader::Init(const bess::pb::SignalFileReaderArg &arg){
     LOG(INFO) << "This is the Signal File Reader module INIT";
-    LOG(INFO) << "Configured arg h_size: " << arg.h_size();
-    h_size_ = arg.h_size();
+    LOG(INFO) << "Configured template size: " << arg.template_().length();
+    //h_size_ = arg.h_size();
+
+    h_size_ = arg.template_().length();
+
+    if(h_size_ >= MAX_TOTAL_PACKET_SIZE){
+        LOG(INFO) << "Packet header too larger";
+        return CommandFailure(EINVAL, "Template too large");
+    }
+
+    bess::utils::Copy(templ_, (const char*)arg.template_().c_str(), h_size_);
+    LOG(INFO) << "Got template of: \"" << templ_ << "\"";
 
     int ret = Resize(64);
     if(ret){
@@ -183,7 +191,7 @@ struct task_result SignalFileReader::RunTask(
         // lseek(lastOpenFd, last_path_offset, SEEK_SET);
         while((! batch->full()) && (readSz = read(lastOpenFd, newPtr, MAX_TOTAL_PACKET_SIZE - h_size_)) > 0){
 
-            memset(newPtr - h_size_, 0, h_size_);
+            bess::utils::Copy(newPtr - h_size_, templ_, h_size_);
 
             newPkt->set_data_len(readSz + h_size_);
             newPkt->set_total_len(readSz + h_size_);
