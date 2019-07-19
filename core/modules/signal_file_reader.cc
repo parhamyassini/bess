@@ -166,7 +166,7 @@ struct task_result SignalFileReader::RunTask(
         workToDo = true;
     }
     else if(llring_dequeue(queue_,  &ringBufObj) == 0){
-        LOG(INFO) << "Got path from the queue!!!: " << (char*)ringBufObj;
+        //LOG(INFO) << "Got path from the queue!!!: " << (char*)ringBufObj;
         
         // BcdId* tmp_ptr = ringBufObj;
 
@@ -176,6 +176,7 @@ struct task_result SignalFileReader::RunTask(
 
         char pathPtr[PATH_MAX];
         BcdIdtoFilename(bcd_id_val_p, pathPtr);
+        LOG(INFO) << "Got path from the queue!!!: " << pathPtr;
 
         if((lastOpenFd = open((char*)pathPtr, O_RDONLY)) == -1){
             LOG(INFO) << "Failed to open file \"" << (char*)pathPtr << "\"";

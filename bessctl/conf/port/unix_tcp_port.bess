@@ -43,6 +43,8 @@ v = UnixSocketPort(name='v', path="/tmp/bess_unix_u")
 
 si::SparkInterface(spark_gate=0, file_gate=1)
 
+temp = bytes("")
+
 #PortInc(port='u') -> SignalFileReader(h_size=1) -> RandomUpdate(fields=[{'offset': 0, 'size': 1, 'min': 0x41, 'max': 0x5a}]) -> PortOut(port='u')
 
 #m = Measure()
@@ -50,7 +52,7 @@ si::SparkInterface(spark_gate=0, file_gate=1)
 #PortInc(port='u') -> PortOut(port='v')
 #PortInc(port='u') -> si -> PortOut(port='v')
 PortInc(port='u') -> si:0 -> PortOut(port='u')
-si:1 -> PortOut(port='v')
+si:1 -> SignalFileReader(template=temp) -> PortOut(port='v')
 #PortInc(port='u') -> SignalFileReader(h_size=1)-> m -> SignalFileWriter(h_size=1)
 
 #bess.resume_all()
