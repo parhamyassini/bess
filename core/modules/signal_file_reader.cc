@@ -17,7 +17,7 @@
 #include "signal_file_reader.h"
 #include "packet.h"
 
-// #include "../module.h"
+#include "spark_common.h"
 
 int SignalFileReader::Resize(int slots) {
   struct llring *old_queue = queue_;
@@ -98,13 +98,16 @@ void SignalFileReader::ProcessBatch(__attribute__((unused)) Context *ctx, bess::
     for(int i = 0; i < batch->cnt(); i++){
         bess::Packet *pkt = batch->pkts()[i];
         // char *ptr = pkt->buffer<char *>() + SNBUF_HEADROOM;
-        char *ptr = pkt->head_data<char *>(0);
+        //char *ptr = pkt->head_data<char *>(0);
 
-        int totalLength = pkt->total_len();
+        //int totalLength = pkt->total_len();
+        BcdID* bcd_id_val_p = (BcdID*)malloc(sizeof(BcdID));
 
-        char pathBuf[PATH_MAX+1];
+        bess::utils::Copy(bcd_id_val_p, pkt->head_data<void *>(0), sizeof(BcdID));
 
-        if(totalLength > PATH_MAX){
+        //char pathBuf[PATH_MAX+1];
+
+        /*if(totalLength > PATH_MAX){
             LOG(INFO) << "Error, path too long. Length: " << totalLength;
             // bess::Free(pkt);
             continue;
@@ -112,26 +115,27 @@ void SignalFileReader::ProcessBatch(__attribute__((unused)) Context *ctx, bess::
         else
         {
             LOG(INFO) << "Total length valid: " << totalLength;
-        }
+        }*/
 
-        strncpy(pathBuf, ptr, totalLength);
-        pathBuf[totalLength] = '\0';//Should be fixed -- no need to copy here.
+        // strncpy(pathBuf, ptr, totalLength);
+        // pathBuf[totalLength] = '\0';//Should be fixed -- no need to copy here.
 
         // strcpy(sharedPath_, pathBuf);
 
 
-        LOG(INFO) << "Packet contains: " << pathBuf;
+        // LOG(INFO) << "Packet contains: " << pathBuf;
 
         //Now, read that file out
-        if(strlen(pathBuf) == 0){
-            LOG(INFO) << "Invalid 0 length path.";
-            continue;
-        }
+        // if(strlen(pathBuf) == 0){
+        //     LOG(INFO) << "Invalid 0 length path.";
+        //     continue;
+        // }
 
         //Dynamic array
 
-        char *temporaryPathPtr = new char[totalLength+1];//Do this at initialization, don't dynamically allocate
-        strcpy(temporaryPathPtr, pathBuf);
+        char *temporaryPathPtr;// = new char[totalLength+1];//Do this at initialization, don't dynamically allocate
+        temporaryPathPtr = (char*)bcd_id_val_p;
+        // strcpy(temporaryPathPtr, pathBuf);
 
         int enqueueRes = llring_enqueue(queue_, temporaryPathPtr);
 
@@ -163,17 +167,27 @@ struct task_result SignalFileReader::RunTask(
     }
     else if(llring_dequeue(queue_,  &ringBufObj) == 0){
         LOG(INFO) << "Got path from the queue!!!: " << (char*)ringBufObj;
+        
+        // BcdId* tmp_ptr = ringBufObj;
 
-        if((lastOpenFd = open((char*)ringBufObj, O_RDONLY)) == -1){
-            LOG(INFO) << "Failed to open file \"" << (char*)ringBufObj << "\"";
+        int pi = 3;
+
+        BcdID* bcd_id_val_p = (BcdID*)ringBufObj;
+
+        char pathPtr[PATH_MAX];
+        BcdIdtoFilename(bcd_id_val_p, pathPtr);
+
+        if((lastOpenFd = open((char*)pathPtr, O_RDONLY)) == -1){
+            LOG(INFO) << "Failed to open file \"" << (char*)pathPtr << "\"";
             workToDo = false;
         }
         else
         {
             workToDo = true;
         }
-        LOG(INFO) << "Going to delete: \"" << (char*)ringBufObj << "\" " << (void*)ringBufObj;
-        delete (char*)ringBufObj;
+        // LOG(INFO) << "Going to delete: \"" << (char*)pathPtr << "\" " << (void*)pathPtr;
+        // delete (char*)ringBufObj;
+        free(ringBufObj);
     }
 
 
