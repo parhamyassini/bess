@@ -2,15 +2,18 @@
 
 static std::string HexDump(const void *buffer, size_t len);
 
-void SparkInterface::SendToFileGate(char* data, int msg_len, Context *ctx){
+void SparkInterface::SendToFileGate(uint64_t filesize, char* data, int msg_len, Context *ctx){
     bess::Packet *newPkt = current_worker.packet_pool()->Alloc();
     int i = 0;
 
     char *newPtr = static_cast<char *>(newPkt->buffer()) + SNBUF_HEADROOM;
+    //First, copy in the filesize
+    uint64_t net_filesize = htobe64(filesize);
+    memcpy(newPtr, &net_filesize, sizeof(uint64_t));
 
     //Now we have to actually emit this data back to spark!
     //memcpy(newPtr, memoryBuf, readSz);//Read directly into the packet -- don't copy
-    memcpy(newPtr, data, msg_len);
+    memcpy(newPtr + sizeof(uint64_t), data, msg_len);
 
     newPkt->set_data_len(msg_len);
     newPkt->set_total_len(msg_len);
@@ -114,15 +117,26 @@ void SparkInterface::ProcessBatch(__attribute__((unused)) Context *ctx, bess::Pa
                 {
                     LOG(INFO) << "Received MSG_WRT_REQ";
                     char fullPath[FILENAME_LEN] = {0};
-                    BcdIdtoFilename(&bcd_id_val, fullPath);
+                    BcdIdtoFilename( BCD_DIR_PREFIX, &bcd_id_val, fullPath);
                     LOG(INFO) << "Going to use path of: " << fullPath;
 					responseCode = htonl(REPLY_SUCCESS);
 					numberOfWrts++;
 					addMsgToQueue(&bcd_id_val, MSG_WRT_RPL, (char*)&responseCode, sizeof(int), 0, ctx);
-                    char* file_path = (char*)malloc(strlen(fullPath) + 1);
-                    strcpy(file_path, fullPath);
+                    //char* file_path = (char*)malloc(strlen(fullPath) + 1);
+                    //strcpy(file_path, fullPath);
                     //llring_enqueue(file_queue_, file_path);
-                    SendToFileGate((char*)&bcd_id_val, sizeof(BcdID), ctx);
+                    FILE* fp = fopen(fullPath, "r");
+                    if(fp == NULL){
+                        LOG(INFO) << "File: " << fullPath << " failed to open";
+                        LOG(ERROR) << "File: " << fullPath << " failed to open";
+                        return;
+                    }
+                    fseek(fp, 0L, SEEK_END);
+                    uint64_t filesize = ftell(fp);
+                    fclose(fp);
+                    SendToFileGate(filesize, (char*)&bcd_id_val, sizeof(BcdID), ctx);
+                    LOG(INFO) << "Msg Hdr Length: " << msgHdr_dat.len_dat;
+                    LOG(INFO) << "Sent to file gate!";
                 }
                 break;
 			case (MSG_READ_REQ):
@@ -133,7 +147,7 @@ void SparkInterface::ProcessBatch(__attribute__((unused)) Context *ctx, bess::Pa
 					if(1==1){
 						responseCode = htonl(REPLY_SUCCESS);
 						char fullPath[FILENAME_LEN] = {0};
-						BcdIdtoFilename(&bcd_id_val, fullPath);
+						BcdIdtoFilename( BCD_DIR_PREFIX, &bcd_id_val, fullPath);
 						FILE* fp = fopen(fullPath, "r");
 						if(fp == NULL){
 							LOG(INFO) << "File: " << fullPath << " failed to open";
@@ -153,7 +167,7 @@ void SparkInterface::ProcessBatch(__attribute__((unused)) Context *ctx, bess::Pa
 			case (MSG_DEL_REQ):
 				{
                     char fullPath[FILENAME_LEN] = {0};
-                    BcdIdtoFilename(&bcd_id_val, fullPath);
+                    BcdIdtoFilename( BCD_DIR_PREFIX, &bcd_id_val, fullPath);
                     LOG(INFO) << "Going to delete file: \"" << fullPath << "\"";
                     if(remove(fullPath) != 0){
                         LOG(INFO) << "Failed to remove specified file!";

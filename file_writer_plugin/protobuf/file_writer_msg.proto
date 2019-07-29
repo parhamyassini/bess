@@ -39,4 +39,5 @@ package sample.file_writer.pb;
  * __Output Gates__: 1
  */
 message FileWriterArg {
+  string write_path = 1;
 }

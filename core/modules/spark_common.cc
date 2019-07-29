@@ -64,8 +64,8 @@ void deleteMsgToken(MsgToken *mt_p) {
     return;
 }
 
-void BcdIdtoFilename(const BcdID *bcd_id_p, char *buf_p) {
-    sprintf(buf_p, "%sbroadcast-%08lx-%04lx-%04lx-%04lx-%012lx/broadcast_%ld", BCD_DIR_PREFIX, ((bcd_id_p->app_id.msb) & (0xffffffff00000000)) >> 32, ((bcd_id_p->app_id.msb) & (0x00000000ffff0000)) >> 16,
+void BcdIdtoFilename(const char* prefix, const BcdID *bcd_id_p, char *buf_p) {
+    sprintf(buf_p, "%sbroadcast-%08lx-%04lx-%04lx-%04lx-%012lx/broadcast_%ld", prefix, ((bcd_id_p->app_id.msb) & (0xffffffff00000000)) >> 32, ((bcd_id_p->app_id.msb) & (0x00000000ffff0000)) >> 16,
         (bcd_id_p->app_id.msb) & (0x000000000000ffff), ((bcd_id_p->app_id.lsb) & (0xffff000000000000)) >> 48, (bcd_id_p->app_id.lsb) & (0x0000ffffffffffff), bcd_id_p->data_id);
     return;
 }

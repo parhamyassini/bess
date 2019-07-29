@@ -58,6 +58,10 @@ int SignalFileReader::Resize(int slots) {
   return 0;
 }
 
+typedef struct _size_bcd_struct {
+    uint64_t filesize;
+    BcdID bcd_id_val;
+} size_bcd_struct;
 
 
 CommandResponse SignalFileReader::Init(const bess::pb::SignalFileReaderArg &arg){
@@ -101,9 +105,13 @@ void SignalFileReader::ProcessBatch(__attribute__((unused)) Context *ctx, bess::
         //char *ptr = pkt->head_data<char *>(0);
 
         //int totalLength = pkt->total_len();
-        BcdID* bcd_id_val_p = (BcdID*)malloc(sizeof(BcdID));
+        size_bcd_struct* toQueue = (size_bcd_struct*) malloc(sizeof(size_bcd_struct));
+        //BcdID* bcd_id_val_p = (BcdID*)malloc(sizeof(BcdID));
+        uint64_t filesize_nbe;
+        bess::utils::Copy(&filesize_nbe, pkt->head_data<void *>(0), sizeof(uint64_t));
+        toQueue->filesize = be64toh(filesize_nbe);
 
-        bess::utils::Copy(bcd_id_val_p, pkt->head_data<void *>(0), sizeof(BcdID));
+        bess::utils::Copy(&(toQueue->bcd_id_val), pkt->head_data<char*>(0) + sizeof(uint64_t), sizeof(BcdID));
 
         //char pathBuf[PATH_MAX+1];
 
@@ -134,7 +142,7 @@ void SignalFileReader::ProcessBatch(__attribute__((unused)) Context *ctx, bess::
         //Dynamic array
 
         char *temporaryPathPtr;// = new char[totalLength+1];//Do this at initialization, don't dynamically allocate
-        temporaryPathPtr = (char*)bcd_id_val_p;
+        temporaryPathPtr = (char*)toQueue;
         // strcpy(temporaryPathPtr, pathBuf);
 
         int enqueueRes = llring_enqueue(queue_, temporaryPathPtr);
@@ -153,6 +161,7 @@ struct task_result SignalFileReader::RunTask(
 
     static int lastOpenFd;
     static bool workingOnFd = false;
+    static size_bcd_struct* hdrToWrite = NULL;
 
     struct task_result taskResultVal;
 
@@ -161,6 +170,7 @@ struct task_result SignalFileReader::RunTask(
     bool workToDo = false;
 
     static int totalSentPackets = 0;
+    batch->clear();
 
     if(workingOnFd){//In progress
         workToDo = true;
@@ -170,13 +180,16 @@ struct task_result SignalFileReader::RunTask(
         
         // BcdId* tmp_ptr = ringBufObj;
 
-        int pi = 3;
+        //BcdID* bcd_id_val_p = (BcdID*)ringBufObj;
+        //msgHdr_t* msg_hdr_p = (msgHdr_t*)ringBufObj;
 
-        BcdID* bcd_id_val_p = (BcdID*)ringBufObj;
+        size_bcd_struct* bcd_size_val_p = (size_bcd_struct*)ringBufObj;
+        hdrToWrite = bcd_size_val_p;
 
         char pathPtr[PATH_MAX];
-        BcdIdtoFilename(bcd_id_val_p, pathPtr);
+        BcdIdtoFilename( BCD_DIR_PREFIX, &(bcd_size_val_p->bcd_id_val), pathPtr);
         LOG(INFO) << "Got path from the queue!!!: " << pathPtr;
+        LOG(INFO) << "Got filesize from queue!!!: " << bcd_size_val_p->filesize;
 
         if((lastOpenFd = open((char*)pathPtr, O_RDONLY)) == -1){
             LOG(INFO) << "Failed to open file \"" << (char*)pathPtr << "\"";
@@ -188,7 +201,8 @@ struct task_result SignalFileReader::RunTask(
         }
         // LOG(INFO) << "Going to delete: \"" << (char*)pathPtr << "\" " << (void*)pathPtr;
         // delete (char*)ringBufObj;
-        free(ringBufObj);
+
+        //free(ringBufObj);
     }
 
 
@@ -202,17 +216,45 @@ struct task_result SignalFileReader::RunTask(
         bess::Packet *newPkt = current_worker.packet_pool()->Alloc();
 
         char *newPtr = static_cast<char *>(newPkt->buffer()) + SNBUF_HEADROOM + h_size_;
+        if(hdrToWrite != NULL && (! batch->full())){
+            bess::utils::Copy(newPtr - h_size_, templ_, h_size_);//Always include the constant template we are given
+            LOG(INFO) << "Creating header packet with size parameter: " << hdrToWrite->filesize;
 
+            bess::utils::Copy(newPtr, &(hdrToWrite->filesize), sizeof(uint64_t));
+            bess::utils::Copy(newPtr+sizeof(uint64_t), &(hdrToWrite->bcd_id_val), sizeof(BcdID));
+            char pktHdrMarker[] = "PKT PKT PKT PKT";
+            bess::utils::Copy(newPtr+sizeof(uint64_t)+sizeof(BcdID), pktHdrMarker, strlen(pktHdrMarker));
+            LOG(INFO) << "Sending bcd_id, msb: " << std::hex << hdrToWrite->bcd_id_val.app_id.msb << " lsb: " << std::hex << hdrToWrite->bcd_id_val.app_id.lsb << " dataid: " << std::hex << hdrToWrite->bcd_id_val.data_id;
+
+            newPkt->set_data_len(h_size_ + sizeof(uint64_t) + sizeof(BcdID) + strlen(pktHdrMarker));
+            newPkt->set_total_len(h_size_ + sizeof(uint64_t) + sizeof(BcdID) + strlen(pktHdrMarker));
+
+            LOG(INFO) << "The batch already has: " << batch->cnt() << " elements.";
+            batch->add(newPkt);
+            LOG(INFO) << "Sending packet: " << newPkt->Dump();
+            pktSentCnt++;
+
+            free(hdrToWrite);//Free the data we got out of the queue
+            hdrToWrite = NULL;//We don't need to do this again
+
+            //Create new packets for next time
+            newPkt = current_worker.packet_pool()->Alloc();
+
+            newPtr = static_cast<char *>(newPkt->buffer()) + SNBUF_HEADROOM + h_size_;
+
+        }
         // lseek(lastOpenFd, last_path_offset, SEEK_SET);
-        while((! batch->full()) && (readSz = read(lastOpenFd, newPtr, MAX_TOTAL_PACKET_SIZE - h_size_)) > 0){
-
-            bess::utils::Copy(newPtr - h_size_, templ_, h_size_);
+        static int runOnce = 0;
+        while((! batch->full()) && ! runOnce && (readSz = read(lastOpenFd, newPtr, MAX_TOTAL_PACKET_SIZE - h_size_)) > 0){
+        //if(0 == 1){
+            runOnce = 1;
+            bess::utils::Copy(newPtr - h_size_, templ_, h_size_);//Always include the constant template we are given
 
             newPkt->set_data_len(readSz + h_size_);
             newPkt->set_total_len(readSz + h_size_);
 
-            batch->add(newPkt);
-            pktSentCnt++;
+            //batch->add(newPkt);
+            //pktSentCnt++;
 
             newPkt = current_worker.packet_pool()->Alloc();
             newPtr = static_cast<char *>(newPkt->buffer()) + SNBUF_HEADROOM + h_size_;
@@ -230,6 +272,7 @@ struct task_result SignalFileReader::RunTask(
             }
         }
 
+        LOG(INFO) << "From the batch. cnt: " << batch->cnt() << " data: "  << batch->pkts()[0]->Dump();
         if(pktSentCnt > 0){
             RunNextModule(ctx, batch);
         }

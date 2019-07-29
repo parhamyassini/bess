@@ -129,7 +129,7 @@ MsgToken * createMsgToken(BcdID *bcd_id_p, msg_type_t type, char *msg_payload, b
 
 void deleteMsgToken(MsgToken *mt_p);
 
-void BcdIdtoFilename(const BcdID *bcd_id_p, char *buf_p);
+void BcdIdtoFilename(const char* prefix, const BcdID *bcd_id_p, char *buf_p);
 
 
 #endif /*SPARK_COMMON_H*/

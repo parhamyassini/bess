@@ -28,8 +28,8 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef BESS_MODULES_QUEUE_H_
-#define BESS_MODULES_QUEUE_H_
+#ifndef BESS_MODULES_WRITER_H_
+#define BESS_MODULES_WRITER_H_
 #define FILENAME_LEN (6)
 
 #include "../kmod/llring.h"
@@ -41,19 +41,8 @@
 #include "utils/ip.h"
 #include "utils/udp.h"
 #include "utils/exact_match_table.h"
-#include "utils/cuckoo_map.h"
 
 #include "pb/file_writer_msg.pb.h"
-
-using bess::utils::Error;
-
-using bess::utils::be16_t;
-using bess::utils::be32_t;
-using bess::utils::be64_t;
-using bess::utils::CuckooMap;
-using bess::utils::Ethernet;
-using bess::utils::Ipv4;
-using bess::utils::Udp;
 
 struct RecverState
 {
@@ -70,15 +59,11 @@ class FileWriter : public Module
 {
 
 public:
-  FileWriter()
-      : Module()
-  {
-    max_allowed_workers_ = Worker::kMaxWorkers;
-  }
-
-  CommandResponse Init(const bess::pb::IPEncapArg &arg);
+  CommandResponse Init(const sample::file_writer::pb::FileWriterArg &arg);
 
   void ProcessBatch(Context *ctx, bess::PacketBatch *batch) override;
+private:
+    std::string write_path_;
 };
 
-#endif // BESS_MODULES_
+#endif // BESS_MODULES_WRITER_H_
