@@ -77,6 +77,11 @@ typedef struct _msgDelRpl { /* reply to the local socket */
 } MsgDelRpl;
 
 
+typedef struct _size_bcd_struct {
+    uint64_t filesize;
+    BcdID bcd_id_val;
+} size_bcd_struct;
+
 
 #define MSG_HDRLEN          (sizeof(MsgHdr))
 #define DATA_HDRLEN         (sizeof(DataHdr))
@@ -131,5 +136,6 @@ void deleteMsgToken(MsgToken *mt_p);
 
 void BcdIdtoFilename(const char* prefix, const BcdID *bcd_id_p, char *buf_p);
 
+bool cmpBcd(BcdID *a, BcdID *b);
 
 #endif /*SPARK_COMMON_H*/

@@ -69,3 +69,21 @@ void BcdIdtoFilename(const char* prefix, const BcdID *bcd_id_p, char *buf_p) {
         (bcd_id_p->app_id.msb) & (0x000000000000ffff), ((bcd_id_p->app_id.lsb) & (0xffff000000000000)) >> 48, (bcd_id_p->app_id.lsb) & (0x0000ffffffffffff), bcd_id_p->data_id);
     return;
 }
+
+//Return true is equal
+//Return false if different
+bool cmpBcd(BcdID *a, BcdID *b){
+    if(a->data_id != b->data_id){
+        LOG(INFO) << "a->data_id != b->data_id: " << a->data_id << " " << b->data_id;
+        return false;
+    }
+    if(a->app_id.msb != b->app_id.msb){
+        LOG(INFO) << "a->app_id.msb != b->app_id.msb: " << a->app_id.msb << " " << b->app_id.msb;
+        return false;
+    }
+    if(a->app_id.lsb != b->app_id.lsb){
+        LOG(INFO) << "a->app_id.lsb != b->app_id.lsb: " << a->app_id.lsb << " " << b->app_id.lsb;
+        return false;
+    }
+    return true;
+}

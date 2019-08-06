@@ -64,6 +64,7 @@ public:
   void ProcessBatch(Context *ctx, bess::PacketBatch *batch) override;
 private:
     std::string write_path_;
+    int h_size_ = 0;
 };
 
 #endif // BESS_MODULES_WRITER_H_

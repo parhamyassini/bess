@@ -1,12 +1,5 @@
 #include <glog/logging.h>
 
-// #include <cassert>
-// #include <cctype>
-// #include <cerrno>
-// #include <cstdio>
-// #include <initializer_list>
-// #include <memory>
-// #include <sstream>
 #include <string>
 
 
@@ -58,11 +51,6 @@ int SignalFileReader::Resize(int slots) {
   return 0;
 }
 
-typedef struct _size_bcd_struct {
-    uint64_t filesize;
-    BcdID bcd_id_val;
-} size_bcd_struct;
-
 
 CommandResponse SignalFileReader::Init(const bess::pb::SignalFileReaderArg &arg){
     LOG(INFO) << "This is the Signal File Reader module INIT";
@@ -110,6 +98,8 @@ void SignalFileReader::ProcessBatch(__attribute__((unused)) Context *ctx, bess::
         uint64_t filesize_nbe;
         bess::utils::Copy(&filesize_nbe, pkt->head_data<void *>(0), sizeof(uint64_t));
         toQueue->filesize = be64toh(filesize_nbe);
+        LOG(INFO) << "FS_nbe: " << filesize_nbe;
+        LOG(INFO) << "FS: " << toQueue->filesize;
 
         bess::utils::Copy(&(toQueue->bcd_id_val), pkt->head_data<char*>(0) + sizeof(uint64_t), sizeof(BcdID));
 
@@ -161,10 +151,10 @@ struct task_result SignalFileReader::RunTask(
 
     static int lastOpenFd;
     static bool workingOnFd = false;
-    static size_bcd_struct* hdrToWrite = NULL;
+    static size_bcd_struct hdrToWrite;
+
 
     struct task_result taskResultVal;
-
 
     llring_addr_t ringBufObj;
     bool workToDo = false;
@@ -184,12 +174,38 @@ struct task_result SignalFileReader::RunTask(
         //msgHdr_t* msg_hdr_p = (msgHdr_t*)ringBufObj;
 
         size_bcd_struct* bcd_size_val_p = (size_bcd_struct*)ringBufObj;
-        hdrToWrite = bcd_size_val_p;
+        hdrToWrite = *bcd_size_val_p;
+        free((void*)ringBufObj);
 
         char pathPtr[PATH_MAX];
-        BcdIdtoFilename( BCD_DIR_PREFIX, &(bcd_size_val_p->bcd_id_val), pathPtr);
+        BcdIdtoFilename( BCD_DIR_PREFIX, &(hdrToWrite.bcd_id_val), pathPtr);
         LOG(INFO) << "Got path from the queue!!!: " << pathPtr;
-        LOG(INFO) << "Got filesize from queue!!!: " << bcd_size_val_p->filesize;
+        LOG(INFO) << "Got filesize from queue!!!: " << (hdrToWrite.filesize);
+
+        //char temp[1000] = {0};
+        //sprintf(temp,"echo \"a2b84498f4c2835e5e0065f1d56d45c7\" > %s", pathPtr);
+        //int tempRet = 0;
+        //tempRet += system(temp);
+        //for(int i = 0 ; i < 1000; i++){
+        //    sprintf(temp,"head -c 20 /dev/urandom | md5sum | cut -d ' ' -f 1 >> %s", pathPtr);
+        //    tempRet = system(temp);
+        //}
+        //LOG(INFO) << "Command: " << temp << " returned " << tempRet;
+        //hdrToWrite.filesize = strlen("a2b84498f4c2835e5e0065f1d56d45c7\n") * 1001;
+
+        //char temp[1000] = {0};
+        //sprintf(temp,"head -c 200 /dev/urandom > %s", pathPtr);
+        //int tempRet = 0;
+        //tempRet += system(temp);
+        //for(int i = 0 ; i < 100; i++){
+        //    sprintf(temp,"head -c 200 /dev/urandom >> %s", pathPtr);
+        //    tempRet = system(temp);
+        //}
+        //LOG(INFO) << "Command: " << temp << " returned " << tempRet;
+        //hdrToWrite.filesize = 200 * 101;
+
+        //sleep(2);
+
 
         if((lastOpenFd = open((char*)pathPtr, O_RDONLY)) == -1){
             LOG(INFO) << "Failed to open file \"" << (char*)pathPtr << "\"";
@@ -198,6 +214,11 @@ struct task_result SignalFileReader::RunTask(
         else
         {
             workToDo = true;
+
+            struct stat sBuf;
+            fstat(lastOpenFd, &sBuf);
+            hdrToWrite.filesize = sBuf.st_size;
+            LOG(INFO) << "Hdr filesize is: " << hdrToWrite.filesize << " rather than: " << 200*101;
         }
         // LOG(INFO) << "Going to delete: \"" << (char*)pathPtr << "\" " << (void*)pathPtr;
         // delete (char*)ringBufObj;
@@ -206,73 +227,60 @@ struct task_result SignalFileReader::RunTask(
     }
 
 
-    if(workToDo){
-        uint8_t memoryBuf[MAX_TOTAL_PACKET_SIZE];
+    if(workToDo && ! batch->full()){
+        workingOnFd = true;
         ssize_t readSz = -1; 
 
         unsigned int pktSentCnt = 0u;
 
+        size_t total_h_size = h_size_ + sizeof(BcdID) + sizeof(uint64_t);
+
         //Allocate the first packet and create a pointer to the data
         bess::Packet *newPkt = current_worker.packet_pool()->Alloc();
 
-        char *newPtr = static_cast<char *>(newPkt->buffer()) + SNBUF_HEADROOM + h_size_;
-        if(hdrToWrite != NULL && (! batch->full())){
-            bess::utils::Copy(newPtr - h_size_, templ_, h_size_);//Always include the constant template we are given
-            LOG(INFO) << "Creating header packet with size parameter: " << hdrToWrite->filesize;
+        char *startPtr = static_cast<char *>(newPkt->head_data(0));
 
-            bess::utils::Copy(newPtr, &(hdrToWrite->filesize), sizeof(uint64_t));
-            bess::utils::Copy(newPtr+sizeof(uint64_t), &(hdrToWrite->bcd_id_val), sizeof(BcdID));
-            char pktHdrMarker[] = "PKT PKT PKT PKT";
-            bess::utils::Copy(newPtr+sizeof(uint64_t)+sizeof(BcdID), pktHdrMarker, strlen(pktHdrMarker));
-            LOG(INFO) << "Sending bcd_id, msb: " << std::hex << hdrToWrite->bcd_id_val.app_id.msb << " lsb: " << std::hex << hdrToWrite->bcd_id_val.app_id.lsb << " dataid: " << std::hex << hdrToWrite->bcd_id_val.data_id;
+        LOG(INFO) << "Packet length is: " << total_h_size << ", h_size: " << h_size_;
+                LOG(INFO) << "The batch already has: " << batch->cnt() << " elements.";
 
-            newPkt->set_data_len(h_size_ + sizeof(uint64_t) + sizeof(BcdID) + strlen(pktHdrMarker));
-            newPkt->set_total_len(h_size_ + sizeof(uint64_t) + sizeof(BcdID) + strlen(pktHdrMarker));
+        memset(startPtr, '1', 1500);
+        newPkt->set_data_len(total_h_size+56);
+        newPkt->set_total_len(total_h_size+56);
+        //LOG(INFO) << "Original packet: " << newPkt->Dump();
+        //while((! batch->full()) && (readSz = read(lastOpenFd,startPtr + total_h_size, MAX_TOTAL_PACKET_SIZE - total_h_size)) > 0){
+        if((! batch->full()) && (readSz = read(lastOpenFd,startPtr + total_h_size, MAX_TOTAL_PACKET_SIZE - total_h_size)) > 0){
+            if(h_size_ > 0){
+                bess::utils::Copy(startPtr, templ_, h_size_);//Always include the constant template we are given
+            }
+            bess::utils::Copy(startPtr + h_size_, &(hdrToWrite.filesize), sizeof(uint64_t));
+            bess::utils::Copy(startPtr + h_size_ + sizeof(uint64_t), &(hdrToWrite.bcd_id_val), sizeof(BcdID));
 
-            LOG(INFO) << "The batch already has: " << batch->cnt() << " elements.";
+            LOG(INFO) << "readSz: " << readSz << " packet size: " << total_h_size;
+            newPkt->set_data_len(readSz + total_h_size);
+            newPkt->set_total_len(readSz + total_h_size);
+            //LOG(INFO) << "Sending packet: " << newPkt->Dump();
             batch->add(newPkt);
-            LOG(INFO) << "Sending packet: " << newPkt->Dump();
             pktSentCnt++;
 
-            free(hdrToWrite);//Free the data we got out of the queue
-            hdrToWrite = NULL;//We don't need to do this again
-
-            //Create new packets for next time
             newPkt = current_worker.packet_pool()->Alloc();
-
-            newPtr = static_cast<char *>(newPkt->buffer()) + SNBUF_HEADROOM + h_size_;
-
-        }
-        // lseek(lastOpenFd, last_path_offset, SEEK_SET);
-        static int runOnce = 0;
-        while((! batch->full()) && ! runOnce && (readSz = read(lastOpenFd, newPtr, MAX_TOTAL_PACKET_SIZE - h_size_)) > 0){
-        //if(0 == 1){
-            runOnce = 1;
-            bess::utils::Copy(newPtr - h_size_, templ_, h_size_);//Always include the constant template we are given
-
-            newPkt->set_data_len(readSz + h_size_);
-            newPkt->set_total_len(readSz + h_size_);
-
-            //batch->add(newPkt);
-            //pktSentCnt++;
-
-            newPkt = current_worker.packet_pool()->Alloc();
-            newPtr = static_cast<char *>(newPkt->buffer()) + SNBUF_HEADROOM + h_size_;
+            startPtr = static_cast<char *>(newPkt->head_data(0));
         }
 
         bess::Packet::Free(newPkt);//We are guaranteed to overallocate by one, free this extra packet
 
         totalSentPackets += pktSentCnt;
+        //LOG(INFO) << "SLEEP SLEEP SLEEP";
+        //sleep(1);
 
         if (readSz == 0) {
-            totalSentPackets = 0;
+            LOG(INFO) << "totalSentPackets: " << totalSentPackets;
             workingOnFd = false;
             if(close(lastOpenFd) != 0){
                 LOG(INFO) << "Error could not close fd " << lastOpenFd;
             }
         }
 
-        LOG(INFO) << "From the batch. cnt: " << batch->cnt() << " data: "  << batch->pkts()[0]->Dump();
+        //LOG(INFO) << "From the batch. cnt: " << batch->cnt() << " data: "  << batch->pkts()[0]->Dump();
         if(pktSentCnt > 0){
             RunNextModule(ctx, batch);
         }
