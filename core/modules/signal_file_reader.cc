@@ -247,8 +247,7 @@ struct task_result SignalFileReader::RunTask(
         newPkt->set_data_len(total_h_size+56);
         newPkt->set_total_len(total_h_size+56);
         //LOG(INFO) << "Original packet: " << newPkt->Dump();
-        //while((! batch->full()) && (readSz = read(lastOpenFd,startPtr + total_h_size, MAX_TOTAL_PACKET_SIZE - total_h_size)) > 0){
-        if((! batch->full()) && (readSz = read(lastOpenFd,startPtr + total_h_size, MAX_TOTAL_PACKET_SIZE - total_h_size)) > 0){
+        while((! batch->full()) && (readSz = read(lastOpenFd,startPtr + total_h_size, MAX_TOTAL_PACKET_SIZE - total_h_size)) > 0){
             if(h_size_ > 0){
                 bess::utils::Copy(startPtr, templ_, h_size_);//Always include the constant template we are given
             }

@@ -44,7 +44,9 @@
 CommandResponse FileWriter::Init(const sample::file_writer::pb::FileWriterArg &arg)
 {
   write_path_ = arg.write_path();
+  h_size_ = arg.hdr_len();
   LOG(INFO) << "Configured to use path: \"" << write_path_.c_str() << "\"";
+  LOG(INFO) << "Writer configured with header size of: " << h_size_;
   return CommandSuccess();
 }
 
@@ -68,16 +70,15 @@ void FileWriter::ProcessBatch(Context *ctx, bess::PacketBatch *batch)
   {
 
     bess::Packet *pkt = batch->pkts()[i];
-    uint8_t *pkt_data_p = pkt->head_data<uint8_t*>(0) + sizeof(uint64_t) + sizeof(BcdID);
-    //LOG(INFO) << "GOT PACKET len: " << pkt->total_len() << " data: " << pkt->Dump();
+    uint8_t *pkt_data_p = pkt->head_data<uint8_t*>(h_size_) + sizeof(uint64_t) + sizeof(BcdID);
 
     if((pkt->total_len() > (int64_t)(sizeof(uint64_t) + sizeof(BcdID) + h_size_))){
         static size_bcd_struct hdr;
         totalPktCnt++;
         
         //bess::utils::Copy(pkt->head_data<uint8_t*>(0), &(hdr.filesize), sizeof(uint64_t));
-        hdr.filesize = *((uint64_t*)pkt->head_data(0));
-        hdr.bcd_id_val = *((BcdID*)pkt->head_data(sizeof(uint64_t)));
+        hdr.filesize = *((uint64_t*)pkt->head_data(h_size_));
+        hdr.bcd_id_val = *((BcdID*)pkt->head_data(h_size_ + sizeof(uint64_t)));
 
         //Only run when we have a new file in 1 of 2 cases
         if((fwData.currentlyWorking && ! cmpBcd(&(hdr.bcd_id_val), &(fwData.hdr.bcd_id_val)))
@@ -85,7 +86,6 @@ void FileWriter::ProcessBatch(Context *ctx, bess::PacketBatch *batch)
             if(fwData.currentlyWorking){
                 LOG(INFO) << "ERROR: we're actually reading a new file";
                 LOG(INFO) << "We've only read " << fwData.writtenBytes << " of " << fwData.fileTotalBytes;
-                LOG(INFO) << "cmpBcd: " << cmpBcd(&(hdr.bcd_id_val), &(fwData.hdr.bcd_id_val));
             }
             if(fwData.fp != NULL){
                 fclose(fwData.fp);

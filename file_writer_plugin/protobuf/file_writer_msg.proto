@@ -40,4 +40,5 @@ package sample.file_writer.pb;
  */
 message FileWriterArg {
   string write_path = 1;
+  int32 hdr_len = 2;
 }
