@@ -1,10 +1,7 @@
 #include "spark_interface.h"
 
-static std::string HexDump(const void *buffer, size_t len);
-
 void SparkInterface::SendToFileGate(uint64_t filesize, char* data, int msg_len, Context *ctx){
     bess::Packet *newPkt = current_worker.packet_pool()->Alloc();
-    int i = 0;
 
     char *newPtr = static_cast<char *>(newPkt->buffer()) + SNBUF_HEADROOM;
     //First, copy in the filesize
@@ -62,15 +59,10 @@ void SparkInterface::ProcessBatch(__attribute__((unused)) Context *ctx, bess::Pa
     //RunNextModule(ctx, new_batch);
 
     //Process the packet to open the file, place that onto the queue
-    //
-    //
-    int messagesSentCount = 0;
 
     for(int i = 0; i < batch->cnt(); i++){
         bess::Packet *pkt = batch->pkts()[i];
         uint8_t *ptr = pkt->head_data<uint8_t*>(0);
-
-        int totalLength = pkt->total_len();
 
         msgHdr_t msgHdr_dat;
         parseMsgHdr(&msgHdr_dat, ptr);
@@ -81,7 +73,6 @@ void SparkInterface::ProcessBatch(__attribute__((unused)) Context *ctx, bess::Pa
         uint8_t buf[MAX_PKT_LEN - STD_HDR_LEN];
         memcpy(buf, ptr+STD_HDR_LEN, msgHdr_dat.len_dat.value() - STD_HDR_LEN);
 
-        MsgToken* responseMsg = NULL;
         BcdID bcd_id_val;
         bcd_id_val.app_id  = {msgHdr_dat.msb_dat.value(), msgHdr_dat.lsb_dat.value()};
         bcd_id_val.data_id = msgHdr_dat.id_dat.value();
@@ -161,36 +152,6 @@ void SparkInterface::ProcessBatch(__attribute__((unused)) Context *ctx, bess::Pa
                 LOG(INFO) << "Received message of unknown type. ID: " << msgHdr_dat.type_dat.value();
         }
     }
-}
-
-
-// basically rte_hexdump() from eal_common_hexdump.c
-static std::string HexDump(const void *buffer, size_t len) {
-  std::ostringstream dump;
-  size_t i, ofs;
-  const char *data = reinterpret_cast<const char *>(buffer);
-
-  dump << "Dump data at [" << buffer << "], len=" << len << std::endl;
-  ofs = 0;
-  while (ofs < len) {
-    dump << std::setfill('0') << std::setw(8) << std::hex << ofs << ":";
-    for (i = 0; ((ofs + i) < len) && (i < 16); i++) {
-      dump << " " << std::setfill('0') << std::setw(2) << std::hex
-           << (data[ofs + i] & 0xFF);
-    }
-    for (; i <= 16; i++) {
-      dump << " | ";
-    }
-    for (i = 0; (ofs < len) && (i < 16); i++, ofs++) {
-      char c = data[ofs];
-      if ((c < ' ') || (c > '~')) {
-        c = '.';
-      }
-      dump << c;
-    }
-    dump << std::endl;
-  }
-  return dump.str();
 }
 
 

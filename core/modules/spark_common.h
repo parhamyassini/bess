@@ -128,7 +128,7 @@ void createMsgHdr(char *buf_p, const BcdID *bcd_id_p, const msg_type_t type, con
 
 bytes_t createMsg(char *buf_p, const BcdID *bcd_id_p, const msg_type_t type, const char *msg_payload, const bytes_t tcp_payload_len, const bytes_t padding_len);
 
-static MsgToken *_createMsgToken(const bytes_t tcp_payload_len, uint8_t padding);
+//static MsgToken *_createMsgToken(const bytes_t tcp_payload_len, uint8_t padding);
 
 MsgToken * createMsgToken(BcdID *bcd_id_p, msg_type_t type, char *msg_payload, bytes_t msg_payload_len, uint8_t padding);
 

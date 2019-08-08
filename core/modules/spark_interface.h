@@ -41,12 +41,6 @@ class SparkInterface final : public Module {
         int addMsgToQueue(BcdID *bcd_id_p, msg_type_t type, char *msg_payload, bytes_t msg_payload_len, uint8_t padding, Context *ctx);
         void SendToFileGate(uint64_t filesize, char* data, int msg_len, Context *ctx);
         
-        //Variables
-        //int Resize(int slots, struct llring** queue_pp, uint64_t *new_size_p);
-        //struct llring *queue_;
-        //struct llring *file_queue_;
-        // char sharedPath_[PATH_MAX + 1];
-        // Queue capacity
 		uint64_t size_;
 		uint64_t file_size_;
 

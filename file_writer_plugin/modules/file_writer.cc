@@ -40,6 +40,7 @@
 #include <sys/types.h>
 
 #define DEFAULT_BUFFEREDQUEUE_SIZE 1024
+#define DEFAULT_FILE_WRITER_STRUCT_DATA {false, 0, 0, NULL, {0,{{0,0},0}}};
 
 CommandResponse FileWriter::Init(const sample::file_writer::pb::FileWriterArg &arg)
 {
@@ -59,11 +60,12 @@ typedef struct _filewritedata {
 } filewritedata_t;
 
 /* from upstream */
-void FileWriter::ProcessBatch(Context *ctx, bess::PacketBatch *batch)
+void FileWriter::ProcessBatch(__attribute__((unused)) Context *ctx, bess::PacketBatch *batch)
 {
   int cnt = batch->cnt();
 
-  static filewritedata_t fwData = {false, 0, 0, NULL, {0,{{0,0},0}}};
+  static filewritedata_t fwData = DEFAULT_FILE_WRITER_STRUCT_DATA;
+
   static int totalPktCnt = 0;
 
   for (int i = 0; i < cnt; i++)
@@ -76,7 +78,6 @@ void FileWriter::ProcessBatch(Context *ctx, bess::PacketBatch *batch)
         static size_bcd_struct hdr;
         totalPktCnt++;
         
-        //bess::utils::Copy(pkt->head_data<uint8_t*>(0), &(hdr.filesize), sizeof(uint64_t));
         hdr.filesize = *((uint64_t*)pkt->head_data(h_size_));
         hdr.bcd_id_val = *((BcdID*)pkt->head_data(h_size_ + sizeof(uint64_t)));
 
@@ -84,13 +85,13 @@ void FileWriter::ProcessBatch(Context *ctx, bess::PacketBatch *batch)
         if((fwData.currentlyWorking && ! cmpBcd(&(hdr.bcd_id_val), &(fwData.hdr.bcd_id_val)))
             || ! fwData.currentlyWorking){
             if(fwData.currentlyWorking){
-                LOG(INFO) << "ERROR: we're actually reading a new file";
+                LOG(ERROR) << "We're actually reading a new file";
                 LOG(INFO) << "We've only read " << fwData.writtenBytes << " of " << fwData.fileTotalBytes;
             }
             if(fwData.fp != NULL){
                 fclose(fwData.fp);
             }
-            fwData = {false, 0, 0, NULL, {0,{{0,0},0}}};
+            fwData = DEFAULT_FILE_WRITER_STRUCT_DATA;
 
             LOG(INFO) << "Got filesize of: " << hdr.filesize;
             char fullPath[PATH_MAX];
@@ -125,7 +126,7 @@ void FileWriter::ProcessBatch(Context *ctx, bess::PacketBatch *batch)
         if(fwData.writtenBytes >= fwData.fileTotalBytes){
             fclose(fwData.fp);
             LOG(INFO) << "Received totalPktCnt: " << totalPktCnt;
-            fwData = {false, 0, 0, NULL, {0,{{0,0},0}}};
+            fwData = DEFAULT_FILE_WRITER_STRUCT_DATA;
         }
     }
     
