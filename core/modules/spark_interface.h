@@ -34,14 +34,12 @@ class SparkInterface final : public Module {
         CommandResponse Init(const bess::pb::SparkInterfaceArg &arg);
 
         void ProcessBatch(Context *ctx, bess::PacketBatch *batch);
-        //struct task_result RunTask(Context *ctx, bess::PacketBatch *batch,
-        //    void *arg) override;
 
     private:
-        int addMsgToQueue(BcdID *bcd_id_p, msg_type_t type, char *msg_payload, bytes_t msg_payload_len, uint8_t padding, Context *ctx);
+        uint8_t addMsgToQueue(BcdID *bcd_id_p, msg_type_t type, char *msg_payload, bytes_t msg_payload_len, uint8_t padding, Context *ctx);
         void SendToFileGate(uint64_t filesize, char* data, int msg_len, Context *ctx);
         
-		uint64_t size_;
+        uint64_t size_;
 		uint64_t file_size_;
 
         gate_idx_t spark_gate_;

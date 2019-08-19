@@ -2,16 +2,11 @@
 #define SPARK_COMMON_H
 
 #define MAX_PKT_LEN (1500)
-#define STD_HDR_LEN (48)//Was 52
+#define STD_HDR_LEN (48)
 
 #include "../port.h"
 #include "endian.h"
 #include <arpa/inet.h>
-
-//typedef struct _msgBytes {
-//    char pkt[MAX_PKT_LEN];
-//    int len;
-//} msgBytes;
 
 
 /* primitive types */
@@ -57,23 +52,23 @@ typedef struct _msgHdr {
 } MsgHdr;
 
 typedef struct _msgToken {
-	char *buf_p; // pointer to the content of the message. malloc() when MsgToken is created, free() when MsgToken is deleted
-	bytes_t msg_len; // length of the message body
-	bytes_t padding_len; // length of padding in this message
-	bytes_t byte_sent; // # bytes has been sent
-	struct timeval tv; // timeval when MsgToken is created (stats only)
+    char *buf_p; // pointer to the content of the message. malloc() when MsgToken is created, free() when MsgToken is deleted
+    bytes_t msg_len; // length of the message body
+    bytes_t padding_len; // length of padding in this message
+    bytes_t byte_sent; // # bytes has been sent
+    struct timeval tv; // timeval when MsgToken is created (stats only)
 } MsgToken;
 
 typedef struct _msgReadRpl { /* reply to the local socket */
-	uint32_t code; // the status of the write request
-	uint32_t padding;
-	databyte_t start;     // the byte pointer of the first byte in the received file
-	databyte_t jump;      //
-	databyte_t file_size;
+    uint32_t code; // the status of the write request
+    uint32_t padding;
+    databyte_t start;     // the byte pointer of the first byte in the received file
+    databyte_t jump;      //
+    databyte_t file_size;
 } MsgReadRpl;
 
 typedef struct _msgDelRpl { /* reply to the local socket */
-	uint32_t code; // the status of the write request
+    uint32_t code; // the status of the write request
 } MsgDelRpl;
 
 
@@ -127,8 +122,6 @@ void createBcdId(char *buf_p, const BcdID * bcd_id_p);
 void createMsgHdr(char *buf_p, const BcdID *bcd_id_p, const msg_type_t type, const bytes_t len);
 
 bytes_t createMsg(char *buf_p, const BcdID *bcd_id_p, const msg_type_t type, const char *msg_payload, const bytes_t tcp_payload_len, const bytes_t padding_len);
-
-//static MsgToken *_createMsgToken(const bytes_t tcp_payload_len, uint8_t padding);
 
 MsgToken * createMsgToken(BcdID *bcd_id_p, msg_type_t type, char *msg_payload, bytes_t msg_payload_len, uint8_t padding);
 

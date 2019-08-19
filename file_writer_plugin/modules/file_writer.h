@@ -30,7 +30,6 @@
 
 #ifndef BESS_MODULES_WRITER_H_
 #define BESS_MODULES_WRITER_H_
-#define FILENAME_LEN (6)
 
 #include "../kmod/llring.h"
 #include "../module.h"

@@ -1208,7 +1208,7 @@ message WorkerSplitArg {
  * __Output Gates__: 1
  */
 message SignalFileReaderArg {
-  bytes template = 1;
+  bytes template = 1; ///The bytes type template which is prepended to every packet sent
 }
 
 /**

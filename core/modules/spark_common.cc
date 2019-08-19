@@ -48,7 +48,7 @@ static MsgToken *_createMsgToken(const bytes_t tcp_payload_len, uint8_t padding)
 
 MsgToken * createMsgToken(BcdID *bcd_id_p, msg_type_t type, char *msg_payload, bytes_t msg_payload_len, uint8_t padding) {
     bytes_t tcp_payload_len = MSG_HDRLEN + msg_payload_len; // msgLen is the bytes in TCP payload
-	LOG(INFO) << "TCP Payload len: " << tcp_payload_len;
+    LOG(INFO) << "TCP Payload len: " << tcp_payload_len;
     MsgToken * mt_p = _createMsgToken(tcp_payload_len, padding);
     createMsg(mt_p->buf_p, bcd_id_p, type, msg_payload, tcp_payload_len, mt_p->padding_len);
     return mt_p;

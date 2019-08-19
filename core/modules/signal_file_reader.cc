@@ -98,8 +98,8 @@ void SignalFileReader::ProcessBatch(__attribute__((unused)) Context *ctx, bess::
         uint64_t filesize_nbe;
         bess::utils::Copy(&filesize_nbe, pkt->head_data<void *>(0), sizeof(uint64_t));
         toQueue->filesize = be64toh(filesize_nbe);
-        LOG(INFO) << "FS_nbe: " << filesize_nbe;
-        LOG(INFO) << "FS: " << toQueue->filesize;
+        //LOG(INFO) << "FS_nbe: " << filesize_nbe;
+        //LOG(INFO) << "FS: " << toQueue->filesize;
 
         bess::utils::Copy(&(toQueue->bcd_id_val), pkt->head_data<char*>(0) + sizeof(uint64_t), sizeof(BcdID));
 
@@ -135,9 +135,11 @@ void SignalFileReader::ProcessBatch(__attribute__((unused)) Context *ctx, bess::
         temporaryPathPtr = (char*)toQueue;
         // strcpy(temporaryPathPtr, pathBuf);
 
-        int enqueueRes = llring_enqueue(queue_, temporaryPathPtr);
+        if(llring_enqueue(queue_, temporaryPathPtr) != 0){
+            LOG(INFO) << "Enqueue of path: \"" << temporaryPathPtr << "\" failed";
+        }
 
-        LOG(INFO) << "Enqueue result: " << enqueueRes;
+        //LOG(INFO) << "Enqueue result: " << enqueueRes;
 
         bess::Packet::Free(pkt);
     }
@@ -240,8 +242,8 @@ struct task_result SignalFileReader::RunTask(
 
         char *startPtr = static_cast<char *>(newPkt->head_data(0));
 
-        LOG(INFO) << "Packet length is: " << total_h_size << ", h_size: " << h_size_;
-                LOG(INFO) << "The batch already has: " << batch->cnt() << " elements.";
+        //LOG(INFO) << "Packet length is: " << total_h_size << ", h_size: " << h_size_;
+        //        LOG(INFO) << "The batch already has: " << batch->cnt() << " elements.";
 
         memset(startPtr, '1', 1500);
         newPkt->set_data_len(total_h_size+56);
@@ -254,7 +256,7 @@ struct task_result SignalFileReader::RunTask(
             bess::utils::Copy(startPtr + h_size_, &(hdrToWrite.filesize), sizeof(uint64_t));
             bess::utils::Copy(startPtr + h_size_ + sizeof(uint64_t), &(hdrToWrite.bcd_id_val), sizeof(BcdID));
 
-            LOG(INFO) << "readSz: " << readSz << " packet size: " << total_h_size;
+            //LOG(INFO) << "readSz: " << readSz << " packet size: " << total_h_size;
             newPkt->set_data_len(readSz + total_h_size);
             newPkt->set_total_len(readSz + total_h_size);
             //LOG(INFO) << "Sending packet: " << newPkt->Dump();
