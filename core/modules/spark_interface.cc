@@ -111,6 +111,8 @@ void SparkInterface::ProcessBatch(__attribute__((unused)) Context *ctx, bess::Pa
                             fp = fopen(fullPath, "r");
                             sleep(1);
                         }
+
+                        //There should be a timeout to run this test
                         //if(fp == NULL){
                         //    LOG(ERROR) << "File: " << fullPath << " failed to open";
                         //    return;

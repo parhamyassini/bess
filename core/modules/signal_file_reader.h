@@ -19,8 +19,6 @@ void *arg) override;
 
     private:
         struct llring *queue_;
-        // char sharedPath_[PATH_MAX + 1];
-        // Queue capacity
         uint64_t size_;
         unsigned int h_size_;
         uint8_t templ_[MAX_TOTAL_PACKET_SIZE];
