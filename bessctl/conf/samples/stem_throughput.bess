@@ -34,7 +34,7 @@ DATA_RATE = 10  # Gbps
 CONST_DATA_SIZE = 14
 
 num_cores = int($BESS_CORES!'10')
-data_pkt_size = int($BESS_DATA_PKT_SIZE!'128')
+data_pkt_size = int($BESS_DATA_PKT_SIZE!'64')
 
 assert 64 <= data_pkt_size <= 1024, 'Data pkts needs to be in the range [64, 1024] in bytes'
 
@@ -63,8 +63,8 @@ port0_out0::QueueOut(port=port0, qid=0)
 
 
 
-stem_t1 = StemThroughput(prefix="S", max_time_index=60)
-stem_t2 = StemThroughput(prefix="R", max_time_index=60)
+stem_t1 = StemThroughput(prefix='S', max_time_index=60)
+stem_t2 = StemThroughput(prefix='R', max_time_index=60)
 
 port1_inc0 -> stem_t2 -> Sink()
 

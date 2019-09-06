@@ -67,13 +67,16 @@ StemThroughput::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
     }
 
     prev_pkt_cnt_ += cnt;
+    tot_pkt_cnt_ += cnt;	
 
     for (int i = 0; i < cnt; i++) {
-        prev_bytes_cnt_ += batch->pkts()[i]->total_len();
+        const auto &len = batch->pkts()[i]->total_len();
+	prev_bytes_cnt_ += len;
+	tot_bytes_cnt_ += len;
     }
 
-    tot_pkt_cnt_ += prev_pkt_cnt_;
-    tot_bytes_cnt_ += prev_pkt_cnt_;
+    // tot_pkt_cnt_ += cnt;
+    // tot_bytes_cnt_ += prev_bytes_cnt_;
 
     uint64_t diff = now_ns - prev_ns_;
     if(diff >= kDefaultMaxNs) {
@@ -85,8 +88,8 @@ StemThroughput::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
 
     if(time_idx_ >= max_time_index_) {
         std::cout << prefix_;
-        std::cout << tot_pkt_cnt_;
-        std::cout << tot_bytes_cnt_;
+        std::cout << (tot_pkt_cnt_ / (1000000.0 * max_time_index_));
+        std::cout << ((tot_bytes_cnt_ * 8.0) / (1000000000.0 * max_time_index_));
         enabled_ = false;
     }
 
