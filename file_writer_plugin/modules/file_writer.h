@@ -58,12 +58,15 @@ class FileWriter : public Module
 {
 
 public:
-  CommandResponse Init(const sample::file_writer::pb::FileWriterArg &arg);
+  static const gate_idx_t kNumIGates = 1;
+  static const gate_idx_t kNumOGates = 1;
 
+  CommandResponse Init(const sample::file_writer::pb::FileWriterArg &arg);
   void ProcessBatch(Context *ctx, bess::PacketBatch *batch) override;
 private:
     std::string write_path_;
     int32_t h_size_ = 0;
+
 };
 
 #endif // BESS_MODULES_WRITER_H_

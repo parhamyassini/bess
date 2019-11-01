@@ -41,8 +41,8 @@ message MdcReceiverCommandClearArg {
 /**
  * The MdcReceiver module adds/maintains a list of (MAC address, label) tuples
  *
- * __Input Gates__: 1
- * __Output Gates__: 1
+ * __Input Gates__: 2
+ * __Output Gates__: 3
  */
 message MdcReceiverCommandAddArg {
   /**
@@ -64,6 +64,9 @@ message MdcReceiverCommandAddArg {
  */
 message MdcReceiverArg {
   uint32 agent_id = 1; /// Agent ID
+  uint32 agent_label = 2; /// Agent Label
+  string switch_mac = 3;
+  string agent_mac = 4; /// The MAC address
 }
 
 

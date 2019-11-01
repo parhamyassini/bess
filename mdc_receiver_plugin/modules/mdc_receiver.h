@@ -50,6 +50,7 @@ using bess::utils::Error;
 
 using bess::utils::be16_t;
 using bess::utils::be32_t;
+using bess::utils::be64_t;
 using bess::utils::Ethernet;
 using bess::utils::Mdc;
 
@@ -59,8 +60,16 @@ using bess::utils::Mdc;
 #define MDC_DEFAULT_TABLE_SIZE 1024
 #define MDC_MAX_BUCKET_SIZE 8
 
+#define MDC_OUTPUT_TOR 0
+#define MDC_OUTPUT_INTERNAL 1
+#define MDC_OUTPUT_HC 2
+
+#define MDC_INPUT_APP 0 
+#define MDC_INPUT_EXT 1
+
 typedef uint64_t mac_addr_t;
 typedef uint32_t mdc_label_t;
+typedef uint8_t mdc_mode_t;
 
 struct alignas(32) mdc_entry {
     union {
@@ -81,13 +90,17 @@ struct mdc_table {
     uint64_t count;
 };
 
-
 class MdcReceiver final : public Module {
 public:
   static const Commands cmds;
-  static const gate_idx_t kNumOGates = 3;
+  // Three Outputs: Port0_out direct, App gate (File writer)
+  static const gate_idx_t kNumOGates = 2;
+  // Three Inputs: App gate, ext_gate(port0) and packet_generator
+  static const gate_idx_t kNumIGates = 3;
 
-  MdcReceiver() : Module(), agent_id_(), mdc_table_() {
+  MdcReceiver() : Module(), agent_id_(), agent_label_(), mdc_table_(),
+                     switch_mac_(), agent_mac_(),
+                     emit_ping_pkt_(true), gen_ping_pkts_count_(0) {
       max_allowed_workers_ = Worker::kMaxWorkers;
   }
 
@@ -100,8 +113,20 @@ public:
   CommandResponse CommandClear(const bess::pb::EmptyArg &arg);
 
 private:
-    uint32_t agent_id_;
-    struct mdc_table mdc_table_;
+  uint32_t agent_id_;
+  uint32_t agent_label_;
+  
+  struct mdc_table mdc_table_;
+
+  Ethernet::Address switch_mac_;
+  Ethernet::Address agent_mac_;
+
+  bool emit_ping_pkt_;
+  uint64_t gen_ping_pkts_count_;
+
+  /* These are the functions that actually do the processing after dividing packets */
+  void DoProcessAppBatch(Context *ctx, bess::PacketBatch *batch);
+  void DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch);
 };
 
 #endif // BESS_MODULES_LABELLOOKUP_H_

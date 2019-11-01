@@ -1214,10 +1214,11 @@ message SignalFileReaderArg {
 /**
  * This module handles communication to spark and triggering the file reader
  *
- * __Input Gates__: 1
+ * __Input Gates__: 2
  * __Output Gates__: 2
  */
 message SparkInterfaceArg{
   uint32 spark_gate = 1; /// The gate number to send spark packets to
   uint32 file_gate  = 2; /// The gate number to send file trigger packets to
+  int32 hdr_len = 3; ///Length of header, needed when parsing file writer messages (same as file writer header_len)
 }
