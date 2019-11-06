@@ -70,7 +70,6 @@ HelixTSReader::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
 
     for (int i = 0; i < cnt; i++) {
         bess::Packet *pkt = batch->pkts()[i];
-        // Access UDP payload (i.e., mDC data)
         be64_t *p = pkt->head_data<be64_t *>();
         p += 4;
         uint64_t *ts = reinterpret_cast<uint64_t *>(p);
