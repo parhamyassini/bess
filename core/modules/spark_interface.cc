@@ -1,4 +1,5 @@
 #include "spark_interface.h"
+#include <iostream> 
 
 //Alocates a packet, emits it, and frees
 void SparkInterface::SendToFileGate(uint64_t filesize, char* data, int msg_len, Context *ctx){
@@ -17,13 +18,11 @@ void SparkInterface::SendToFileGate(uint64_t filesize, char* data, int msg_len, 
     EmitPacket(ctx, newPkt, file_gate_);//Send the new packet out of the file gate
 }
 
-
-
 CommandResponse SparkInterface::Init(const bess::pb::SparkInterfaceArg &arg){
     //Get identifiers for spark_gate_ and file_gate_
     spark_gate_ = arg.spark_gate();
     file_gate_ = arg.file_gate();
-
+    h_size_ = arg.hdr_len();
     return CommandSuccess();
 }
 
@@ -48,7 +47,14 @@ uint8_t SparkInterface::addMsgToQueue(BcdID *bcd_id_p, msg_type_t type, char *ms
     return 0;
 }
 
-void SparkInterface::ProcessBatch(__attribute__((unused)) Context *ctx, bess::PacketBatch *batch){
+bool SparkInterface::isFileExist(char *path){
+    if (saved_files_set.find(path) == saved_files_set.end()){
+        return 0;
+    }
+    return 1;
+}
+
+void SparkInterface::DoProcessSocketBatch(Context *ctx, bess::PacketBatch *batch) {
     //Process the packet to open the file, place that onto the queue
     for(int i = 0; i < batch->cnt(); i++){
         bess::Packet *pkt = batch->pkts()[i];
@@ -58,7 +64,6 @@ void SparkInterface::ProcessBatch(__attribute__((unused)) Context *ctx, bess::Pa
         parseMsgHdr(&msgHdr_dat, ptr);//Parse and save the contents of the packet into msgHdr_dat
 
         bess::Packet::Free(pkt);//Incoming packet freed
-
 
         BcdID bcd_id_val;//Create a bcd_id data structure
         bcd_id_val.app_id  = {msgHdr_dat.msb_dat.value(), msgHdr_dat.lsb_dat.value()};//Place the MSB and LSB into the struct
@@ -77,7 +82,7 @@ void SparkInterface::ProcessBatch(__attribute__((unused)) Context *ctx, bess::Pa
                     LOG(INFO) << "Received MSG_WRT_REQ";
 
                     char fullPath[FILENAME_LEN] = {0};//Create a buffer for the path
-                    BcdIdtoFilename( BCD_DIR_PREFIX, &bcd_id_val, fullPath );//Place the calculated filename into the fullPath buffer
+                    BcdIdtoFilename(BCD_DIR_PREFIX, &bcd_id_val, fullPath);//Place the calculated filename into the fullPath buffer
                     responseCode = htonl(REPLY_SUCCESS);//Convert the reply code into network byte order
                     addMsgToQueue(&bcd_id_val, MSG_WRT_RPL, (char*)&responseCode, sizeof(int), 0, ctx);
                     //char* file_path = (char*)malloc(strlen(fullPath) + 1);
@@ -101,11 +106,10 @@ void SparkInterface::ProcessBatch(__attribute__((unused)) Context *ctx, bess::Pa
                 {
                     LOG(INFO) << "Recveived MSG_READ_REQ";
                     //Check if we've already receive this file
-                    //For testing, assume we have.
-                    if(1==1){
+                    char fullPath[FILENAME_LEN] = {0};
+                    BcdIdtoFilename(BCD_DIR_PREFIX, &bcd_id_val, fullPath);
+                    if (isFileExist(fullPath)) {
                         responseCode = htonl(REPLY_SUCCESS);
-                        char fullPath[FILENAME_LEN] = {0};
-                        BcdIdtoFilename( BCD_DIR_PREFIX, &bcd_id_val, fullPath);
                         FILE* fp = NULL;
                         while(fp == NULL){
                             fp = fopen(fullPath, "r");
@@ -141,6 +145,35 @@ void SparkInterface::ProcessBatch(__attribute__((unused)) Context *ctx, bess::Pa
             default:
                 LOG(INFO) << "Received message of unknown type. ID: " << msgHdr_dat.type_dat.value();
         }
+    }
+}
+
+void SparkInterface::DoProcessFileWriterBatch(bess::PacketBatch *batch) {
+    char fullPath[FILENAME_LEN] = {0}; //Create a buffer for the path
+
+    /* Extract the bcd_id of the completed files and save them */
+    for(int i = 0; i < batch->cnt(); i++) {
+        bess::Packet *pkt = batch->pkts()[i];
+        if((pkt->total_len() > (int64_t)(sizeof(uint64_t) + sizeof(BcdID) + h_size_))){
+            static size_bcd_struct hdr;
+
+            hdr.filesize = *((uint64_t*)pkt->head_data(h_size_));
+            hdr.bcd_id_val = *((BcdID*)pkt->head_data(h_size_ + sizeof(uint64_t)));
+            // TODO @parham: Check correctness of this procedure
+            BcdIdtoFilename(BCD_DIR_PREFIX, &(hdr.bcd_id_val), fullPath);
+            saved_files_set.insert(fullPath);
+        }
+    }
+}
+
+void SparkInterface::ProcessBatch(__attribute__((unused)) Context *ctx, bess::PacketBatch *batch){
+    
+    gate_idx_t incoming_gate = ctx->current_igate;
+
+    if (incoming_gate == 0) {
+        DoProcessSocketBatch(ctx, batch);
+    } else {
+        DoProcessFileWriterBatch(batch);
     }
 }
 

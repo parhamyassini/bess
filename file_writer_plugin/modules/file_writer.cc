@@ -97,7 +97,7 @@ void FileWriter::ProcessBatch(__attribute__((unused)) Context *ctx, bess::Packet
             char fullPath[PATH_MAX];
             char dirName[PATH_MAX];
 
-            BcdIdtoFilename( write_path_.c_str(), &(hdr.bcd_id_val), fullPath);
+            BcdIdtoFilename(write_path_.c_str(), &(hdr.bcd_id_val), fullPath);
             strcpy(dirName, fullPath);
             dirname(dirName);
             LOG(INFO) << "Got path of: " << fullPath;
@@ -126,6 +126,11 @@ void FileWriter::ProcessBatch(__attribute__((unused)) Context *ctx, bess::Packet
         if(fwData.writtenBytes >= fwData.fileTotalBytes){
             fclose(fwData.fp);
             LOG(INFO) << "Received totalPktCnt: " << totalPktCnt;
+            /* 
+              Emit packet here.
+              Packets go to spark interface which will save the received bcdIDs for responding spark requests.
+            */
+            EmitPacket(ctx, pkt, 0);
             fwData = DEFAULT_FILE_WRITER_STRUCT_DATA;
         }
     }
