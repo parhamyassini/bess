@@ -11,8 +11,12 @@ import socket
 import scapy.all as scapy
 import mdcpkts
 
+# Agent IDs we use 
+# port1: 4
+# port2: 16
+# port3: 64
 ramdisk_path = "/mnt/ramdisk/"
-AGENT_ID = 2
+AGENT_ID = 4
 AGENT_LABEL = 0x04
 AGENT_NIC = '0000:7e:00.0'
 SWITCH_MAC = '06:a6:7e:72:37:92'
@@ -23,7 +27,8 @@ print("This is the integrated MDC agent script")
 
 # Modules for communication with Spark 
 stream_socket = UnixStreamSocketPort(name = 'stream_socket', path = "/home/hadoop/domain_socket_file")
-file_reader_template = bytes("TEMPLATE")
+# TODO @parham: Check this line, template should be hdr or complete packet?
+file_reader_template = mdcpkts.mdc_unlabeled_data_hdr(label=0x0A0B0C0D)
 file_reader::SignalFileReader(template = file_reader_template)
 file_writer::FileWriter(write_path = ramdisk_path, hdr_len=len(file_reader_template))
 spark_interface::SparkInterface(spark_gate = 0, file_gate = 1, hdr_len=len(file_reader_template))
@@ -37,7 +42,8 @@ assert 64 <= data_pkt_size <= 1024, 'Data pkts needs to be in the range [64, 102
 
 print('Core count = %d' % num_cores)
 
-# Health check pkt template TODO @parham Delete these
+# TODO @parham Delete these
+# Health check pkt template 
 # hc_eth = scapy.Ether(src = '02:1e:67:9f:4d:ae', dst = '06:16:3e:1b:72:32', type = 0xdedc)
 # hc_mdc = MDCHealthCheck(dummy0 = 0xff, dummy1 = 0x000000)
 # hc_payload = 'hello'

@@ -67,9 +67,24 @@ using bess::utils::Mdc;
 #define MDC_INPUT_APP 0 
 #define MDC_INPUT_EXT 1
 
+#define MDC_PKT_TYPE_MASK    0x00000000000000ff
+#define MDC_PKT_AGENT_MASK   0x000000000000ff00
+#define MDC_PKT_ADDRESS_MASK 0x00000000ffff0000
+#define MDC_PKT_LABEL_MASK   0xffffffff00000000
+
 typedef uint64_t mac_addr_t;
 typedef uint32_t mdc_label_t;
 typedef uint8_t mdc_mode_t;
+
+enum MDCPacketType {
+  MDC_TYPE_UNLABELED = 0x01,
+  MDC_TYPE_LABELED = 0x02,
+  MDC_TYPE_SET_ACTIVE_AGENT = 0x00,
+  MDC_TYPE_PING = 0xF0,
+  MDC_TYPE_PONG = 0xF1,
+  MDC_TYPE_SYNC_STATE = 0xF2,
+  MDC_TYPE_SYNC_STATE_DONE = 0xF3,
+};
 
 struct alignas(32) mdc_entry {
     union {
@@ -113,6 +128,7 @@ public:
   CommandResponse CommandClear(const bess::pb::EmptyArg &arg);
 
 private:
+  /* TODO @parham: agent id should be 8 bits? remove agent_label? */
   uint32_t agent_id_;
   uint32_t agent_label_;
   
@@ -127,6 +143,7 @@ private:
   /* These are the functions that actually do the processing after dividing packets */
   void DoProcessAppBatch(Context *ctx, bess::PacketBatch *batch);
   void DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch);
+  void LabelAndSendPacket(Context *ctx, bess::Packet *pkt);
 };
 
 #endif // BESS_MODULES_LABELLOOKUP_H_

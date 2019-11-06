@@ -494,95 +494,80 @@ CommandResponse MdcReceiver::CommandClear(const bess::pb::EmptyArg &) {
     return CommandSuccess();
 }
 
+void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt){
+    Ethernet *eth = pkt->head_data<Ethernet *>();
+    be64_t *p = pkt->head_data<be64_t *>(sizeof(Ethernet));
+    mac_addr_t address = (p->raw_value() & MDC_PKT_ADDRESS_MASK) >> 16;
+    mdc_label_t out_label = 0x00;
+    int ret = -1;
+    bool agent_is_only_recv = 0;
+    ret = mdc_find(&mdc_table_, address, &out_label);
+    if (ret != 0) {
+        out_label = 0x00;
+    }
+    agent_is_only_recv = ((~agent_label_ & ~out_label) == ~agent_label_);              
+    if((agent_id_ & out_label) == agent_id_) { // Agent is in destination list
+        if (!agent_is_only_recv) {
+            bess::Packet *newpkt = bess::Packet::copy(pkt);
+            if (newpkt) {
+                EmitPacket(ctx, newpkt, MDC_OUTPUT_INTERNAL);
+            }
+        } else {
+                EmitPacket(ctx, pkt, MDC_OUTPUT_INTERNAL);
+        }
+    }
+    if (agent_is_only_recv) {
+        return;
+    }
+    /* TODO @parham: Check correctness of this line */
+    *p = *p | (be64_t(out_label & ~agent_label_) >> 32); //Shift label 4 bytes (label comes after all other fields)
+    
+    /* Set packet type as 0x02 (MDC_TYPE_LABELED) */
+    *p = *p & be64_t(0x00ffffffffffffff); // clear type bits
+    *p = *p | be64_t(0x0200000000000000); // Set 0x02
+
+    eth->dst_addr = switch_mac_;
+    // ip->dst = switch_ip_;
+    eth->src_addr = agent_mac_;
+    // ip->src = agent_ip_;
+
+    EmitPacket(ctx, pkt, MDC_OUTPUT_TOR);
+}
+
 void MdcReceiver::DoProcessAppBatch(Context *ctx, bess::PacketBatch *batch) {
     /* Process internal packets */
     int cnt = batch->cnt();
     
     for (int i = 0; i < cnt; i++) {
         bess::Packet *pkt = batch->pkts()[i];
-        Ethernet *eth = pkt->head_data<Ethernet *>();
-        // Ipv4 *ip = reinterpret_cast<Ipv4 *>(eth + 1);
-        be64_t *p = pkt->head_data<be64_t *>(sizeof(Ethernet));
-        /* Full Labeling process */
-        mac_addr_t address = (p->raw_value() & 0x0000000000ffff00) >> 8;
-        /* TODO @parham No need to check for mode and packet type? */
-        mdc_label_t out_label = 0x00;
-        int ret = mdc_find(&mdc_table_, address, &out_label);
-        if (ret != 0) {
-            out_label = 0x00;
-        }
-        *p = *p | (be64_t(out_label & ~agent_label_) >> 16);
-        *p = *p | be64_t(0x0000000000ff0000); // Put 0xff as Mode (means labled packet)
-        
-        /* TODO @parham: Modify ip headers or not? */
-        eth->dst_addr = switch_mac_;
-        // ip->dst = switch_ip_;
-        eth->src_addr = agent_mac_;
-        // ip->src = agent_ip_;
-
-        EmitPacket(ctx, pkt, MDC_OUTPUT_TOR);
+        LabelAndSendPacket(ctx, pkt);
     }
 }
 
 void MdcReceiver::DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch) {
     /* Process external packets */
     int cnt = batch->cnt();
-    
+
     for (int i = 0; i < cnt; i++) {
         bess::Packet *pkt = batch->pkts()[i];
-        Ethernet *eth = pkt->head_data<Ethernet *>();
-        // Ipv4 *ip = reinterpret_cast<Ipv4 *>(eth + 1);
         be64_t *p = pkt->head_data<be64_t *>(sizeof(Ethernet));
-        uint8_t mdc_type = p->raw_value() & 0x00000000000000ff;
+        uint8_t mdc_type = p->raw_value() & MDC_PKT_TYPE_MASK;
+        mac_addr_t address = (p->raw_value() & MDC_PKT_ADDRESS_MASK) >> 16;
+        int ret = -1;
+        mdc_label_t tmp_label, new_label;
 
-        if (mdc_type == 0xff) {
-            be64_t *p = pkt->head_data<be64_t *>(sizeof(Ethernet));
-            uint8_t mode = p->raw_value() & 0x000000ff;
-            mac_addr_t address = (p->raw_value() & 0x0000000000ffff00) >> 8;
-//            std::cout << std::hex << static_cast<int>(mode) << std::endl;
-            if (mode == 0x00) {
-                // If mode is 0x00, the data pkt needs to be labeled
-                mdc_label_t out_label = 0x00;
-                int ret = mdc_find(&mdc_table_, address, &out_label);
-                if (ret != 0) {
-                    out_label = 0x00;
-                }
-                bool agent_is_only_recv = (~agent_label_ & ~out_label) == ~agent_label_;                
-                if((agent_id_ & out_label) == agent_id_) { // Agent is in destination list
-                    if (!agent_is_only_recv) {
-                        bess::Packet *newpkt = bess::Packet::copy(pkt);
-                        if (newpkt) {
-                            EmitPacket(ctx, newpkt, MDC_OUTPUT_INTERNAL);
-                        }
-                    } else {
-                            EmitPacket(ctx, pkt, MDC_OUTPUT_INTERNAL);
-                    }
-                }
-                if (agent_is_only_recv) {
-                    continue;
-                }
-
-                *p = *p | (be64_t(out_label & ~agent_label_) >> 16);
-                *p = *p | be64_t(0x0000000000ff0000); // Put 0xff as Mode (means labled packet)
-
-                eth->dst_addr = switch_mac_;
-                // ip->dst = switch_ip_;
-
-                eth->src_addr = agent_mac_;
-                // ip->src = agent_ip_;
-
-                EmitPacket(ctx, pkt, MDC_OUTPUT_TOR);
-            } else if (mode == 0xff) { //Labeled pkts sent to filewriter module
+        switch(mdc_type) {
+            case MDC_TYPE_UNLABELED: // It is a data pkt and needs to be labeled
+//              std::cout << std::hex << static_cast<int>(mode) << std::endl;
+                LabelAndSendPacket(ctx, pkt);
+                break;
+            case MDC_TYPE_LABELED: // It's a data pkt and labled so send to FileWriter module
                 EmitPacket(ctx, pkt, MDC_OUTPUT_INTERNAL);
-            } else { // Packet structure is not as expected
-                DropPacket(ctx, pkt);
-                continue;
-            }
-            //TODO receive the pkt here
-            if (mdc_type == 0xf1) {
-                // A pong pkt
+                break;
+            case MDC_TYPE_PONG:
                 emit_ping_pkt_ = true;
-            } else if (mdc_type == 0xf0) {
+                break;
+            case MDC_TYPE_PING:
                 // A ping pkt coming from generator
                 // We need to make sure the mDC Agent still sends pkts even if ToR had failed, in case the ToR comes back!
                 // "100" represents the rate at which the Agent resends the ping pkts if ToR fails
@@ -593,12 +578,9 @@ void MdcReceiver::DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch) {
                     emit_ping_pkt_ = false;
                 }
                 gen_ping_pkts_count_ += 1;
-            } else if (mdc_type == 0xf2) {
-                // sync-state pkt
-                int ret = -1;
-                mdc_label_t tmp_label;
-                mac_addr_t address = (p->raw_value() & 0x0000000000ffff00) >> 8;
-                mdc_label_t new_label = (p->raw_value() & 0x00ffffffff000000) >> 24;
+                break;
+            case MDC_TYPE_SYNC_STATE:
+                new_label = (p->raw_value() & MDC_PKT_LABEL_MASK) >> 32;
 
                 // if the session is already stored, modify it. Else, add it to the table.
                 if (mdc_find(&mdc_table_, address, &tmp_label) == 0) {
@@ -609,16 +591,23 @@ void MdcReceiver::DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch) {
                 if (ret == 0) {
                     // send the pkt back to the switch
                     // set the label to 0x00000000
-                    *p = *p & be64_t(0xffffff00000000ff);
+                    *p = *p & be64_t(0xffffffff00000000);
+                    /* 
+                     TODO: This line works for changing 0xf2 to 0xf3 but if convention changed,
+                     bitwise or doesn't always set the desired value 
+                     */
                     // set the mdc_type to 0xf3
                     *p = *p | be64_t(0xf300000000000000);
                     // set the current Agent ID
-                    *p = *p | (be64_t(agent_id_) << 32);
+                    *p = *p | (be64_t(agent_id_) << 48); // 6 byte shift since "type" is before agent id
                     EmitPacket(ctx, pkt, MDC_OUTPUT_TOR);
                 } else {
                     DropPacket(ctx, pkt);
                 }
-            }
+                break;
+            default:
+                DropPacket(ctx, pkt);
+                break;
         }
     }
 }
