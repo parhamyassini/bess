@@ -526,9 +526,9 @@ void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt){
     *p = *p & be64_t(0x00ffffffffffffff); // clear type bits
     *p = *p | be64_t(0x0200000000000000); // Set 0x02
 
-    eth->dst_addr = switch_mac_;
+    // eth->dst_addr = switch_mac_;
     // ip->dst = switch_ip_;
-    eth->src_addr = agent_mac_;
+    // eth->src_addr = agent_mac_;
     // ip->src = agent_ip_;
 
     EmitPacket(ctx, pkt, MDC_OUTPUT_TOR);
