@@ -495,7 +495,7 @@ CommandResponse MdcReceiver::CommandClear(const bess::pb::EmptyArg &) {
 }
 
 void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt){
-    Ethernet *eth = pkt->head_data<Ethernet *>();
+    // Ethernet *eth = pkt->head_data<Ethernet *>();
     be64_t *p = pkt->head_data<be64_t *>(sizeof(Ethernet));
     mac_addr_t address = (p->raw_value() & MDC_PKT_ADDRESS_MASK) >> 16;
     mdc_label_t out_label = 0x00;
