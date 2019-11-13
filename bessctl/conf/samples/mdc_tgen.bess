@@ -1,0 +1,72 @@
+# Copyright (c) 2014-2017, The Regents of the University of California.
+# Copyright (c) 2016-2017, Nefeli Networks, Inc.
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+# list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+# this list of conditions and the following disclaimer in the documentation
+# and/or other materials provided with the distribution.
+#
+# * Neither the names of the copyright holders nor the names of their
+# contributors may be used to endorse or promote products derived from this
+# software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+
+import mdcpkts
+
+THROUGHPUT = 1 # in Gbps
+num_cores = int($MDC_CORES!'8')
+data_pkt_size = int($MDC_DATA_PKT_SIZE!'1024')
+
+assert 64 <= data_pkt_size <= 1024, 'Data pkts needs to be in the range [64, 1024] in bytes'
+
+print('Core count = %d' % num_cores)
+print('Data pkt size = %d' % data_pkt_size)
+
+unlabeled_data_pkt = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x404040,
+                                                         pkt_len=data_pkt_size,
+                                                         src_mac='02:1e:67:9f:4d:ae',
+                                                         dst_mac='06:16:3e:1b:72:32')
+unlabeled_data_pkt_bytes = bytes(unlabeled_data_pkt)
+
+# If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
+# TODO: this needs to depend on the CPU layout and where the NIC is.
+start_core = 0
+for i in range(num_cores):
+    bess.add_worker(wid=i, core=i+start_core)
+
+# Define Ports and Queues
+port0::PMDPort(port_id=0)
+port0_inc0::QueueInc(port=port0, qid=0)
+port0_out0::QueueOut(port=port0, qid=0)
+
+port0_inc0 -> Sink()
+
+# Traffic generator: this generates data pkts unlike the MdcPktGen that generate ctrl pkts
+# Recommended: Use when the NIC has at least 2 ports, and when you want to generate traffic using BESS
+# Data rate depends on the capacity (Gbps), and data_pkt_size and Ethernet framing overhead (bytes)
+tgen_pkt_rate = THROUGHPUT * 1e9 / (8 * (data_pkt_size + 24))
+bess.add_tc('tgen', policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)})
+
+# Creates a source, and limits its pkt rate
+tgen_src::Source()
+tgen_src.attach_task('tgen')
+
+# Sends generated traffic on Port1
+tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> port0_out0
