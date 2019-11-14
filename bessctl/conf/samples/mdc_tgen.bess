@@ -39,7 +39,7 @@ assert 64 <= data_pkt_size <= 1024, 'Data pkts needs to be in the range [64, 102
 print('Core count = %d' % num_cores)
 print('Data pkt size = %d' % data_pkt_size)
 
-unlabeled_data_pkt = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x404040,
+unlabeled_data_pkt = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x505050,
                                                          pkt_len=data_pkt_size,
                                                          src_mac='02:1e:67:9f:4d:ae',
                                                          dst_mac='06:16:3e:1b:72:32')
