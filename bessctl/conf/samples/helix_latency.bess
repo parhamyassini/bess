@@ -30,11 +30,11 @@
 
 import scapy.all as scapy
 
-DATA_RATE = 1  # Gbps
+DATA_RATE = 10  # Gbps
 CONST_DATA_SIZE = 14 + 16
 
 num_cores = int($BESS_CORES!'10')
-data_pkt_size = int($BESS_DATA_PKT_SIZE!'1024')
+data_pkt_size = int($BESS_DATA_PKT_SIZE!'128')
 
 assert 64 <= data_pkt_size <= 1024, 'Data pkts needs to be in the range [64, 1024] in bytes'
 
@@ -50,12 +50,19 @@ class HelixData(scapy.Packet):
                  scapy.IntField('label4' , 0)]
 
 # Data pkt template
-s1_eth = scapy.Ether(src='F8:F2:1E:13:CA:FC', dst='00:00:00:00:00:01', type=0xdddd)
-s1_helix = HelixData(label1=67111060, label2=2148532224, label3=0, label4=0)
-s1_data = b"\0" * (data_pkt_size - CONST_DATA_SIZE)
-s1_pkt = s1_eth/s1_helix/s1_data
-s1_pkt_bytes = bytes(s1_pkt)
+#s1_eth = scapy.Ether(src='F8:F2:1E:13:CA:FC', dst='00:00:00:00:00:01', type=0xdddd)
+#s1_helix = HelixData(label1=67111060, label2=2148532224, label3=0, label4=0)
+#s1_data = b"\0" * (data_pkt_size - CONST_DATA_SIZE)
+#s1_pkt = s1_eth/s1_helix/s1_data
+#s1_pkt_bytes = bytes(s1_pkt)
 
+s2_eth = scapy.Ether(src='F8:F2:1E:13:CA:FC', dst='00:00:00:00:00:02', type=0xdddd)
+s2_helix = HelixData(label1=50380928, label2=33554432, label3=16777216, label4=0)
+s2_data = b"\0" * (data_pkt_size - CONST_DATA_SIZE)
+s2_pkt = s2_eth/s2_helix/s2_data
+s2_pkt_bytes = bytes(s2_pkt)
+
+pkt_bytes = s2_pkt_bytes
 
 # If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
 # TODO: this needs to depend on the CPU layout and where the NIC is.
@@ -64,8 +71,8 @@ for i in range(num_cores):
     bess.add_worker(wid=i, core=i+start_core)
 
 # Define Ports and Queues
-port0::PMDPort(port_id=0, num_inc_q=1, num_out_q=1)
-port1::PMDPort(port_id=1, num_inc_q=1, num_out_q=1)
+port0::PMDPort(port_id=4, num_inc_q=1, num_out_q=1)
+port1::PMDPort(port_id=5, num_inc_q=1, num_out_q=1)
 
 port1_inc0::QueueInc(port=port1, qid=0)
 port0_out0::QueueOut(port=port0, qid=0)
@@ -90,4 +97,4 @@ tgen_src::Source()
 tgen_src.attach_task('tgen')
 
 # Sends generated traffic on Port1
-tgen_src -> Rewrite(templates=[s1_pkt_bytes]) -> helix_ts -> port0_out0
+tgen_src -> Rewrite(templates=[pkt_bytes]) -> helix_ts -> port0_out0
