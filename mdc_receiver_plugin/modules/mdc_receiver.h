@@ -90,7 +90,7 @@ struct alignas(32) mdc_entry {
     union {
         struct {
             uint64_t addr : 48;
-            uint64_t label : 24;
+            uint64_t label : 32;
             uint64_t occupied : 1;
         };
         uint64_t entry;

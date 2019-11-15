@@ -476,7 +476,7 @@ CommandResponse MdcReceiver::CommandAdd(
         if (parse_mac_addr(str_addr, addr) != 0) {
             return CommandFailure(EINVAL, "%s is not a proper mac address", str_addr);
         }
-
+	// std::cout << mdc_addr_to_u64(addr) << label << std::endl;
         int r = mdc_add_entry(&mdc_table_, mdc_addr_to_u64(addr), label);
         if (r == -EEXIST) {
             return CommandFailure(EEXIST, "MAC address '%s' already exist", str_addr);
@@ -485,6 +485,16 @@ CommandResponse MdcReceiver::CommandAdd(
         } else if (r != 0) {
             return CommandFailure(-r);
         }
+///*
+	mdc_label_t out_label1 = 0x00;
+int ret1 = -1;
+ret1 = mdc_find(&mdc_table_, 55465664714246, &out_label1);
+if (ret1 != 0) {                                                                                                             
+std::cout << ":(" << std::endl;
+out_label1 = 0x00; 
+}
+std::cout << std::hex << out_label1 << std::endl;
+//*/
     }
 
     return CommandSuccess();
@@ -497,14 +507,20 @@ CommandResponse MdcReceiver::CommandClear(const bess::pb::EmptyArg &) {
 void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt){
     // Ethernet *eth = pkt->head_data<Ethernet *>();
     be64_t *p = pkt->head_data<be64_t *>(sizeof(Ethernet));
-    mac_addr_t address = (p->raw_value() & MDC_PKT_ADDRESS_MASK) >> 16;
+    // mac_addr_t address = (p->raw_value() & MDC_PKT_ADDRESS_MASK) >> 16;
+    mac_addr_t address = *(pkt->head_data<uint64_t *>()) & 0x0000ffffffffffff;
     mdc_label_t out_label = 0x00;
     int ret = -1;
     bool agent_is_only_recv = 0;
+    std::cout << std::hex << address << std::endl;
+    //std::cout << std::hex << out_label << std::endl;
+    std::cout << std::hex << *p << std::endl;
     ret = mdc_find(&mdc_table_, address, &out_label);
     if (ret != 0) {
+	std::cout << ":(" << std::endl;
         out_label = 0x00;
     }
+    std::cout << std::hex << out_label << std::endl;
     agent_is_only_recv = ((~agent_label_ & ~out_label) == ~agent_label_);              
     if((agent_id_ & out_label) == agent_id_) { // Agent is in destination list
         if (!agent_is_only_recv) {
@@ -520,7 +536,8 @@ void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt){
         return;
     }
     /* TODO @parham: Check correctness of this line */
-    *p = *p | (be64_t(out_label & ~agent_label_) >> 32); //Shift label 4 bytes (label comes after all other fields)
+    std::cout << std::hex << (be64_t(out_label & ~agent_label_))   << std::endl;
+    *p = *p | (be64_t(out_label & ~agent_label_)); //Shift label 4 bytes (label comes after all other fields)
     
     /* Set packet type as 0x02 (MDC_TYPE_LABELED) */
     *p = *p & be64_t(0x00ffffffffffffff); // clear type bits
@@ -530,7 +547,8 @@ void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt){
     // ip->dst = switch_ip_;
     // eth->src_addr = agent_mac_;
     // ip->src = agent_ip_;
-
+    std::cout << "AFTER" << std::endl;
+    std::cout << std::hex << *p << std::endl;
     EmitPacket(ctx, pkt, MDC_OUTPUT_TOR);
 }
 
