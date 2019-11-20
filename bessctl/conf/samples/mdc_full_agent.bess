@@ -14,8 +14,8 @@ import mdcpkts
 # port3: 64
 SPARK_RAMDISK_PATH = "/mnt/ramdisk/"
 SPARK_SOCKET_PATH = "/home/hadoop/domain_socket_file"
-AGENT_ID = 4
-AGENT_LABEL = 0x04
+AGENT_ID = 16
+AGENT_LABEL = 0x10
 AGENT_NIC = '0000:7e:00.0'
 SWITCH_MAC = '06:a6:7e:72:37:92'
 AGENT_MAC = '06:9f:da:98:a4:76'
@@ -41,9 +41,8 @@ print('Core count = %d' % num_cores)
 print('Spark enabled = %s' % enable_spark)
 
 ping_pkt = mdcpkts.make_mdc_ping_pkt(agent=AGENT_ID,
-                                     src_mac='01:02:03:04:05:06',
-                                     dst_mac='AA:BB:CC:DD:EE:FF',
-                                     eth_type=0x9999)
+                                     src_mac='F8:F2:1E:3C:0E:84',
+                                     dst_mac='02:53:55:4d:45:01')
 ping_pkt_bytes = bytes(ping_pkt)
 
 # If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
@@ -53,7 +52,7 @@ for i in range(num_cores):
     bess.add_worker(wid=i, core=i + start_core)
 
 # Define Ports and Queues
-port0::PMDPort(port_id=0)
+port0::PMDPort(port_id=0, num_inc_q=4, num_out_q=4)
 
 port0_inc0::QueueInc(port=port0, qid=0)
 port0_out0::QueueOut(port=port0, qid=0)
@@ -67,7 +66,7 @@ mdc_receiver = MdcReceiver(agent_id=AGENT_ID,
 mdc_pkt_gen = MdcPktGen(template=ping_pkt_bytes, pps=1e2)
 
 # Adds (session address, label) tuples to the MdcReceiver module
-mdc_receiver.add(entries=[{'addr': '06:16:3e:1b:72:32', 'label': 0x404040}])
+mdc_receiver.add(entries=[{'addr': '06:16:3e:1b:72:32', 'label': 0x50505050}])
 
 if enable_spark:
     # Interfacing with spark
@@ -85,7 +84,7 @@ if enable_spark:
     # TODO @parham File reader needs to be connected to 1:mdc_receiver
     mdc_receiver:1 -> file_writer -> 1:spark_interface
 else:
-    mdc_receiver:1 -> Sink()
+    mdc_receiver:1 -> Queue() -> AwsMdcThroughput() -> Sink()
 
 # Health check pkts
 q::Queue()

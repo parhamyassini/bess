@@ -493,7 +493,7 @@ if (ret1 != 0) {
 std::cout << ":(" << std::endl;
 out_label1 = 0x00; 
 }
-std::cout << std::hex << out_label1 << std::endl;
+//std::cout << std::hex << out_label1 << std::endl;
 //*/
     }
 
@@ -579,11 +579,11 @@ void MdcReceiver::DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch) {
                 LabelAndSendPacket(ctx, pkt);
                 break;
             case MDC_TYPE_LABELED: // It's a data pkt and labled so send to FileWriter module
-		std::cout << "MDC_TYPE_LABELED" << std::endl;
+		//std::cout << "MDC_TYPE_LABELED" << std::endl;
                 EmitPacket(ctx, pkt, MDC_OUTPUT_INTERNAL);
                 break;
             case MDC_TYPE_PONG:
-		std::cout << "MDC_TYPE_PONG" << std::endl;
+		//std::cout << "MDC_TYPE_PONG" << std::endl;
                 emit_ping_pkt_ = true;
                 break;
             case MDC_TYPE_PING:
@@ -600,7 +600,7 @@ void MdcReceiver::DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch) {
                 gen_ping_pkts_count_ += 1;
                 break;
             case MDC_TYPE_SYNC_STATE:
-		std::cout << "MDC_TYPE_SYNC_STATE" << std::endl;
+		// std::cout << "MDC_TYPE_SYNC_STATE" << std::endl;
                 new_label = (p->raw_value() & MDC_PKT_LABEL_MASK) >> 32;
 
                 // if the session is already stored, modify it. Else, add it to the table.
@@ -627,7 +627,7 @@ void MdcReceiver::DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch) {
                 }
                 break;
             default:
-		std::cout << "DEFAULT" << std::endl;
+		//std::cout << "DEFAULT" << std::endl;
                 DropPacket(ctx, pkt);
                 break;
         }
