@@ -39,7 +39,7 @@ assert 64 <= data_pkt_size <= 1024, 'Data pkts needs to be in the range [64, 102
 print('Core count = %d' % num_cores)
 print('Data pkt size = %d' % data_pkt_size)
 
-unlabeled_data_pkt = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x505050,
+unlabeled_data_pkt = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x000000,
                                                          pkt_len=data_pkt_size,
                                                          src_mac='02:1e:67:9f:4d:ae',
                                                          dst_mac='06:16:3e:1b:72:32')
@@ -47,7 +47,7 @@ unlabeled_data_pkt_bytes = bytes(unlabeled_data_pkt)
 
 # If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
 # TODO: this needs to depend on the CPU layout and where the NIC is.
-start_core = 0
+start_core = 10
 for i in range(num_cores):
     bess.add_worker(wid=i, core=i+start_core)
 
@@ -62,6 +62,7 @@ port0_inc0 -> Sink()
 # Recommended: Use when the NIC has at least 2 ports, and when you want to generate traffic using BESS
 # Data rate depends on the capacity (Gbps), and data_pkt_size and Ethernet framing overhead (bytes)
 tgen_pkt_rate = THROUGHPUT * 1e9 / (8 * (data_pkt_size + 24))
+print(tgen_pkt_rate)
 bess.add_tc('tgen', policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)})
 
 # Creates a source, and limits its pkt rate
