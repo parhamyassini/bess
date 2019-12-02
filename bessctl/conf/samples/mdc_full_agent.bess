@@ -158,6 +158,9 @@ print('Ping enabled = %d' % PING_ENABLED)
 print('Spark enabled = %s' % SPARK_ENABLED)
 
 # Creates mDC modules: a receiver and control pkt generator
+throughput = AwsMdcThroughput()
+merger = Merge()
+
 for mdc_rec_idx in mdc_rec_port:
     q_inc, q_out = mdc_rec_port[mdc_rec_idx]
     mdc_rec_name = 'mdc_rec_%d' % mdc_rec_idx
@@ -180,17 +183,17 @@ for mdc_rec_idx in mdc_rec_port:
     bess.connect_modules(rec, tmp_out_q)
     bess.connect_modules(tmp_out_q, q_out)
 
-    # TODO: For now, AwsMdcThroughput cannot support multi-queue cases
     if not SPARK_ENABLED:
         tmp_sink_q = Queue()
         sink = Sink()
         bess.connect_modules(rec, tmp_sink_q, ogate=1)
-        if mq_enabled:
-            bess.connect_modules(tmp_sink_q, sink)
-        else:
-            throughput = AwsMdcThroughput()
-            bess.connect_modules(tmp_sink_q, throughput)
-            bess.connect_modules(throughput, sink)
+        bess.connect_modules(tmp_sink_q, merger, igate=mdc_rec_idx)
+        # if mq_enabled:
+        #     bess.connect_modules(tmp_sink_q, sink)
+        # else:
+        #     throughput = AwsMdcThroughput()
+        #     bess.connect_modules(tmp_sink_q, throughput)
+        #     bess.connect_modules(throughput, sink)
 
     # Ping pkts (only for the first receiver)
     if PING_ENABLED and mdc_rec_idx == 0:
@@ -205,6 +208,9 @@ for mdc_rec_idx in mdc_rec_port:
         bess.connect_modules(ping_q, rec, igate=2)
         ping_q.attach_task(wid=0)
         mdc_pkt_gen.attach_task(wid=0)
+
+
+merger -> throughput -> Sink()
 
 if SPARK_ENABLED:
     # Modules for communication with Spark
