@@ -67,7 +67,7 @@ AwsMdcThroughput::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
 
     uint64_t diff = now_ns - prev_ns_;
     if(diff >= kDefaultMaxNs) {
-        std::cout << time_idx_;
+        std::cout << diff;
 //        std::cout << prev_pkt_cnt_;
         std::cout << prev_bytes_cnt_;
         time_idx_ += 1;
