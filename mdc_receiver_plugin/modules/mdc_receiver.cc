@@ -505,21 +505,18 @@ CommandResponse MdcReceiver::CommandClear(const bess::pb::EmptyArg &) {
 }
 
 void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt){
-    // Ethernet *eth = pkt->head_data<Ethernet *>();
     be64_t *p = pkt->head_data<be64_t *>(sizeof(Ethernet));
-    // mac_addr_t address = (p->raw_value() & MDC_PKT_ADDRESS_MASK) >> 16;
     mac_addr_t address = *(pkt->head_data<uint64_t *>()) & 0x0000ffffffffffff;
-    mdc_label_t out_label = 0x00;
+    mdc_label_t out_label = 0x50;
     int ret = -1;
     bool agent_is_only_recv = 0;
-    //std::cout << std::hex << address << std::endl;
-    //std::cout << std::hex << *p << std::endl;
+    
     ret = mdc_find(&mdc_table_, address, &out_label);
     if (ret != 0) {
 	std::cout << ":(" << std::endl;
         out_label = 0x00;
     }
-    //std::cout << std::hex << out_label << std::endl;
+    
     agent_is_only_recv = ((~agent_label_ & ~out_label) == ~agent_label_);              
     if((agent_id_ & out_label) == agent_id_) { // Agent is in destination list
         if (!agent_is_only_recv) {
@@ -534,20 +531,13 @@ void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt){
     if (agent_is_only_recv) {
         return;
     }
-    /* TODO @parham: Check correctness of this line */
-    // be64_t(out_label & ~agent_label_);
-    *p = *p | (be64_t(out_label & ~agent_label_)); //Shift label 4 bytes (label comes after all other fields)
     
-    /* Set packet type as 0x02 (MDC_TYPE_LABELED) */
+    *p = *p | (be64_t(out_label & ~agent_label_)); 
+    
+    // Set packet type as 0x02 (MDC_TYPE_LABELED)
     *p = *p & be64_t(0x00ffffffffffffff); // clear type bits
     *p = *p | be64_t(0x0200000000000000); // Set 0x02
 
-    // eth->dst_addr = switch_mac_;
-    // ip->dst = switch_ip_;
-    // eth->src_addr = agent_mac_;
-    // ip->src = agent_ip_;
-    //std::cout << "AFTER" << std::endl;
-    //std::cout << std::hex << *p << std::endl;
     EmitPacket(ctx, pkt, MDC_OUTPUT_TOR);
 }
 
@@ -577,6 +567,7 @@ void MdcReceiver::DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch) {
             case MDC_TYPE_UNLABELED: // It is a data pkt and needs to be labeled
 //              std::cout << std::hex << static_cast<int>(mode) << std::endl;
                 LabelAndSendPacket(ctx, pkt);
+		//EmitPacket(ctx, pkt, MDC_OUTPUT_INTERNAL);
                 break;
             case MDC_TYPE_LABELED: // It's a data pkt and labled so send to FileWriter module
 		//std::cout << "MDC_TYPE_LABELED" << std::endl;
@@ -585,9 +576,10 @@ void MdcReceiver::DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch) {
             case MDC_TYPE_PONG:
 		//std::cout << "MDC_TYPE_PONG" << std::endl;
                 emit_ping_pkt_ = true;
+		DropPacket(ctx, pkt);
                 break;
             case MDC_TYPE_PING:
-		// std::cout << "MDC_TYPE_PING" << std::endl;
+		//std::cout << "MDC_TYPE_PING" << std::endl;
                 // A ping pkt coming from generator
                 // We need to make sure the mDC Agent still sends pkts even if ToR had failed, in case the ToR comes back!
                 // "100" represents the rate at which the Agent resends the ping pkts if ToR fails
