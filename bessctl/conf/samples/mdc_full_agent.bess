@@ -14,8 +14,8 @@ import mdcpkts
 # port3: 64
 SPARK_RAMDISK_PATH = "/mnt/ramdisk/"
 SPARK_SOCKET_PATH = "/home/hadoop/domain_socket_file"
-AGENT_ID = 16
-AGENT_LABEL = 0x10
+AGENT_ID = 4
+AGENT_LABEL = 0x04
 AGENT_NIC = '0000:7e:00.0'
 SWITCH_MAC = '06:a6:7e:72:37:92'
 AGENT_MAC = '06:9f:da:98:a4:76'
@@ -41,8 +41,8 @@ print('Core count = %d' % num_cores)
 print('Spark enabled = %s' % enable_spark)
 
 ping_pkt = mdcpkts.make_mdc_ping_pkt(agent=AGENT_ID,
-                                     src_mac='F8:F2:1E:3C:0E:84',
-                                     dst_mac='02:53:55:4d:45:01')
+                                     src_mac='F8:F2:1E:3A:13:C4',
+                                     dst_mac='02:53:55:4d:45:00')
 ping_pkt_bytes = bytes(ping_pkt)
 
 # If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
@@ -55,7 +55,9 @@ for i in range(num_cores):
 port0::PMDPort(port_id=0, num_inc_q=4, num_out_q=4)
 
 port0_inc0::QueueInc(port=port0, qid=0)
+port0_inc1::QueueInc(port=port0, qid=1)
 port0_out0::QueueOut(port=port0, qid=0)
+port0_out1::QueueOut(port=port0, qid=1)
 
 # Creates mDC modules: a receiver, a control pkt generator and Health check
 mdc_receiver = MdcReceiver(agent_id=AGENT_ID,
@@ -63,10 +65,16 @@ mdc_receiver = MdcReceiver(agent_id=AGENT_ID,
                            switch_mac=SWITCH_MAC,
                            agent_mac=AGENT_MAC)
 
-mdc_pkt_gen = MdcPktGen(template=ping_pkt_bytes, pps=1e2)
+mdc_receiver1 = MdcReceiver(agent_id=AGENT_ID,
+                            agent_label=AGENT_LABEL, 
+                            switch_mac=SWITCH_MAC, 
+                            agent_mac=AGENT_MAC)
+
+mdc_pkt_gen = MdcPktGen(template=ping_pkt_bytes, pps=1e3)
 
 # Adds (session address, label) tuples to the MdcReceiver module
 mdc_receiver.add(entries=[{'addr': '06:16:3e:1b:72:32', 'label': 0x50505050}])
+mdc_receiver1.add(entries=[{'addr': '06:16:3e:1b:72:32', 'label': 0x50505050}])
 
 if enable_spark:
     # Interfacing with spark
@@ -75,9 +83,11 @@ if enable_spark:
 
 # packets from the incoming port on ext_gate, are sent to mdc_receiver
 port0_inc0 -> 1:mdc_receiver
+port0_inc1 -> 1:mdc_receiver1
 
 # Processed pkts: unlabeled pkts and update-state ctrl pkts (port0_out0 is TOR output from mdc_receiver)
 mdc_receiver:0  -> Queue() -> port0_out0
+mdc_receiver1:0  -> Queue() -> port0_out1
 
 if enable_spark:
     # If the Agent host has a receiver, sends these pkts to file writer
