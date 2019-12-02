@@ -76,7 +76,7 @@ public:
   CommandResponse CommandClear(const bess::pb::EmptyArg &arg);
 
 private:
-    static const uint64_t kDefaultMaxNs = 10'000'000;  // 10 ms
+    static const uint64_t kDefaultMaxNs = 1'000'000;  // 1 ms
 
     uint64_t prev_ns_;
     uint64_t prev_pkt_cnt_;
