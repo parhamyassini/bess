@@ -72,6 +72,11 @@ using bess::utils::Mdc;
 #define MDC_PKT_ADDRESS_MASK 0x00000000ffff0000
 #define MDC_PKT_LABEL_MASK   0xffffffff00000000
 
+#define MDC_PKT_IP_TYPE_MASK    0x000000ff00000000 // After reading the first 64 bits
+#define MDC_PKT_IP_AGENT_MASK   0x0000ff0000000000 // After reading the first 64 bits
+#define MDC_PKT_IP_ADDRESS_MASK 0xffff000000000000 // After reading the first 64 bits
+#define MDC_PKT_IP_LABEL_MASK   0x00000000ffffffff // After reading the second 64 bits
+
 typedef uint64_t mac_addr_t;
 typedef uint32_t mdc_label_t;
 typedef uint8_t mdc_mode_t;
@@ -114,7 +119,7 @@ public:
   static const gate_idx_t kNumIGates = 3;
 
   MdcReceiver() : Module(), agent_id_(), agent_label_(), mdc_table_(),
-                     switch_mac_(), agent_mac_(),
+                     switch_mac_(), agent_mac_(), ip_encap_(),
                      emit_ping_pkt_(true), gen_ping_pkts_count_(0) {
       max_allowed_workers_ = Worker::kMaxWorkers;
   }
@@ -137,6 +142,7 @@ private:
   Ethernet::Address switch_mac_;
   Ethernet::Address agent_mac_;
 
+  bool ip_encap_;
   bool emit_ping_pkt_;
   uint64_t gen_ping_pkts_count_;
 

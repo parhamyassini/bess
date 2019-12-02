@@ -425,6 +425,8 @@ MdcReceiver::Init(const sample::mdc_receiver::pb::MdcReceiverArg &arg) {
     int size = MDC_DEFAULT_TABLE_SIZE;
     int bucket = MDC_MAX_BUCKET_SIZE;
 
+    ip_encap_ = arg.ip_encap();
+
     // Parses Agent ID
     if(arg.agent_id() <= 0) {
         return CommandFailure(-1, "Agent ID has to be a positive integer");
@@ -505,7 +507,7 @@ CommandResponse MdcReceiver::CommandClear(const bess::pb::EmptyArg &) {
 }
 
 void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt){
-    be64_t *p = pkt->head_data<be64_t *>(sizeof(Ethernet));
+    // This is the dst_mac address from Ethernet header.
     mac_addr_t address = *(pkt->head_data<uint64_t *>()) & 0x0000ffffffffffff;
     mdc_label_t out_label = 0x50;
     int ret = -1;
@@ -531,12 +533,22 @@ void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt){
     if (agent_is_only_recv) {
         return;
     }
-    
-    *p = *p | (be64_t(out_label & ~agent_label_)); 
-    
-    // Set packet type as 0x02 (MDC_TYPE_LABELED)
-    *p = *p & be64_t(0x00ffffffffffffff); // clear type bits
-    *p = *p | be64_t(0x0200000000000000); // Set 0x02
+
+    be64_t *p1 = pkt->head_data<be64_t *>(sizeof(Ethernet));
+    if(!ip_encap_) {
+        // label the pkt and remove agent_label_ from out_label
+        *p1 = *p1 | (be64_t(out_label & ~agent_label_));
+        // Set packet type as 0x02 (MDC_TYPE_LABELED)
+        *p1 = *p1 & be64_t(0x00ffffffffffffff); // clear type bits
+        *p1 = *p1 | be64_t(0x0200000000000000); // Set 0x02
+    } else {
+        // Set packet type as 0x02 (MDC_TYPE_LABELED)
+        *p1 = *p1 & be64_t(0xffffffff00ffffff); // clear type bits
+        *p1 = *p1 | be64_t(0x0000000002000000); // Set 0x02
+
+        be64_t *p2 = p1 + 1;
+        *p2 = *p2 | ((be64_t(out_label & ~agent_label_)) << 32);
+    }
 
     EmitPacket(ctx, pkt, MDC_OUTPUT_TOR);
 }
@@ -553,33 +565,32 @@ void MdcReceiver::DoProcessAppBatch(Context *ctx, bess::PacketBatch *batch) {
 
 void MdcReceiver::DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch) {
     /* Process external packets */
+    // TODO: All Sync-related messages aren't tested yet.
     int cnt = batch->cnt();
 
     for (int i = 0; i < cnt; i++) {
         bess::Packet *pkt = batch->pkts()[i];
         be64_t *p = pkt->head_data<be64_t *>(sizeof(Ethernet));
         uint8_t mdc_type = p->raw_value() & MDC_PKT_TYPE_MASK;
-        mac_addr_t address = (p->raw_value() & MDC_PKT_ADDRESS_MASK) >> 16;
+        if(ip_encap_) {
+            mdc_type = p->raw_value() & MDC_PKT_IP_TYPE_MASK;
+        }
         int ret = -1;
+        mac_addr_t address;
         mdc_label_t tmp_label, new_label;
 
         switch(mdc_type) {
             case MDC_TYPE_UNLABELED: // It is a data pkt and needs to be labeled
-//              std::cout << std::hex << static_cast<int>(mode) << std::endl;
                 LabelAndSendPacket(ctx, pkt);
-		//EmitPacket(ctx, pkt, MDC_OUTPUT_INTERNAL);
                 break;
             case MDC_TYPE_LABELED: // It's a data pkt and labled so send to FileWriter module
-		//std::cout << "MDC_TYPE_LABELED" << std::endl;
                 EmitPacket(ctx, pkt, MDC_OUTPUT_INTERNAL);
                 break;
             case MDC_TYPE_PONG:
-		//std::cout << "MDC_TYPE_PONG" << std::endl;
                 emit_ping_pkt_ = true;
-		DropPacket(ctx, pkt);
+		        DropPacket(ctx, pkt);
                 break;
             case MDC_TYPE_PING:
-		//std::cout << "MDC_TYPE_PING" << std::endl;
                 // A ping pkt coming from generator
                 // We need to make sure the mDC Agent still sends pkts even if ToR had failed, in case the ToR comes back!
                 // "100" represents the rate at which the Agent resends the ping pkts if ToR fails
@@ -592,9 +603,8 @@ void MdcReceiver::DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch) {
                 gen_ping_pkts_count_ += 1;
                 break;
             case MDC_TYPE_SYNC_STATE:
-		// std::cout << "MDC_TYPE_SYNC_STATE" << std::endl;
                 new_label = (p->raw_value() & MDC_PKT_LABEL_MASK) >> 32;
-
+                address = (p->raw_value() & MDC_PKT_ADDRESS_MASK) >> 16;
                 // if the session is already stored, modify it. Else, add it to the table.
                 if (mdc_find(&mdc_table_, address, &tmp_label) == 0) {
                     ret = mdc_mod_entry(&mdc_table_, address, new_label);
@@ -619,7 +629,6 @@ void MdcReceiver::DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch) {
                 }
                 break;
             default:
-		//std::cout << "DEFAULT" << std::endl;
                 DropPacket(ctx, pkt);
                 break;
         }

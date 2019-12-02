@@ -67,6 +67,7 @@ message MdcReceiverArg {
   uint32 agent_label = 2; /// Agent Label
   string switch_mac = 3;
   string agent_mac = 4; /// The MAC address
+  bool ip_encap = 5;
 }
 
 

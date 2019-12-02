@@ -8,24 +8,205 @@
 
 import mdcpkts
 
-# Agent IDs we use 
-# port1: 4
-# port2: 16
-# port3: 64
+# Agent IDs we use: Agent1= 4, Agent2= 16, Agent3= 64
+AGENT_ID = 4
+DEFAULT_SESSIONS = [{'addr': '06:16:3e:1b:72:32', 'label': 0x50505050}]
+
+# Ping-pong protocol support
+PING_ENABLED = True
+PING_PKT_RATE = 1e3
+PING_SRC_MAC = 'F8:F2:1E:3A:13:C4'
+PING_DST_MAC = '02:53:55:4d:45:00'
+
+# NUMA and MQ support
+
+# Number of processors to be used
+NUM_PROCS = 1
+# Available cores per processor
+NUM_CORES = 8
+# Number of NIC queues for the agent.
+# If TGEN_ENABLED is True, the script will use two extra queues for traffic generation
+NUM_QUEUES = 2
+NIC_PCI_IDS = {0: ['XXX'],
+               1: []
+               }
+# CPU layout
+CORE_IDS = {0: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+                20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
+
+            1: [10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+                30, 31, 32, 33, 34, 35, 36, 37, 38, 39],
+            }
+
+# Spark support
+SPARK_ENABLED = int($MDC_ENABLE_SPARK!False)
 SPARK_RAMDISK_PATH = "/mnt/ramdisk/"
 SPARK_SOCKET_PATH = "/home/hadoop/domain_socket_file"
-AGENT_ID = 4
-AGENT_LABEL = 0x04
-AGENT_NIC = '0000:7e:00.0'
-SWITCH_MAC = '06:a6:7e:72:37:92'
-AGENT_MAC = '06:9f:da:98:a4:76'
-num_cores = int($MDC_CORES!'8')
-enable_spark = int($MDC_ENABLE_SPARK!False)
-# SWITCH_IP = '172.31.17.223'
-# AGENT_IP = '172.31.26.147'
-print("This is the full MDC agent script")
 
-if enable_spark:
+# Traffic Generator: Use *ONLY* for stress test
+TGEN_ENABLED = False
+# in Gbps
+TGEN_THROUGHPUT = 1
+TGEN_PKT_SIZE = 1024
+
+# End of configuration
+
+mq_enabled = NUM_QUEUES > 1
+# Set NUM_CORES to the min. number of cores per processor
+curr_num_cores = NUM_CORES
+
+for p_idx in range(NUM_PROCS):
+    num_cores = len(CORE_IDS[p_idx])
+    if num_cores < curr_num_cores:
+        curr_num_cores = num_cores
+
+NUM_CORES = curr_num_cores
+
+worker_info_map = {}
+proc_worker_map = {}
+for p_idx in range(NUM_PROCS):
+    proc_cores = CORE_IDS[p_idx][:NUM_CORES]
+    for c_idx, c_id in enumerate(proc_cores):
+        w_id = p_idx * NUM_PROCS + c_idx
+        worker_info_map[w_id] = {'core': c_id, 'core_idx': c_idx, 'proc': p_idx}
+        if p_idx not in proc_worker_map:
+            proc_worker_map[p_idx] = []
+        proc_worker_map[p_idx].append(w_id)
+        bess.add_worker(wid=w_id, core=c_id)
+
+# Define Ports and Queues
+mdc_rec_count = 0
+mdc_rec_port = {}
+port_count = 0
+for p_idx, nic_list in NIC_PCI_IDS.items():
+    next_wid_idx = 0
+    for nic_idx, nic_pci_id in enumerate(nic_list):
+        num_queues = NUM_QUEUES + 2 if TGEN_ENABLED else NUM_QUEUES
+        port_name = 'port_%d_%d' % (p_idx, nic_idx)
+        PMDPort(name=port_name, pci=nic_pci_id, num_inc_q=num_queues, num_out_q=num_queues)
+        port_count += 1
+
+        # Create inc/out queues for the agent
+        for q_idx in range(NUM_QUEUES):
+            q_inc = 'q_inc_%s_%d' % (port_name, q_idx)
+            q_out = 'q_out_%s_%d' % (port_name, q_idx)
+            QueueInc(name=q_inc, port=port_name, qid=q_idx)
+            QueueOut(name=q_out, port=port_name, qid=q_idx)
+
+            # Store the mdc_rec_count and (q_inc, q_out) mapping
+            mdc_rec_port[mdc_rec_count] = (q_inc, q_out)
+            mdc_rec_count += 1
+
+            # Assign queues to workers
+            next_wid = proc_worker_map[p_idx][next_wid_idx]
+            bess.attach_task(module_name=q_inc, wid=next_wid)
+
+            if next_wid_idx < len(proc_worker_map[p_idx]) - 1:
+                next_wid_idx += 1
+            else:
+                next_wid_idx = 0
+
+        if TGEN_ENABLED:
+            src_count = 2
+            ip_list = [('100.168.1.1', '100.132.44.1'),
+                       ('72.67.48.53', '72.10.30.55'),
+                       ]
+            for src_idx in range(src_count):
+                src_ip = ip_list[src_idx % len(ip_list)][0]
+                dst_ip = ip_list[src_idx % len(ip_list)][1]
+                # Creates two output queues
+                q_out = 'q_out_%s_%d' % (port_name, NUM_QUEUES + src_idx)
+                QueueOut(name=q_out, port=port_name, qid=NUM_QUEUES)
+
+                tgen_pkt_rate = 1./float(src_count) * TGEN_THROUGHPUT * 1e9 / (8 * (TGEN_PKT_SIZE + 24))
+
+                tgen_tc_name = 'tgen%d_%d_%d' % (src_idx, p_idx, nic_idx)
+                bess.add_tc(tgen_tc_name, policy='rate_limit',
+                            resource='packet', limit={'packet': int(tgen_pkt_rate)})
+
+                # Creates a source, and limits its pkt rate
+                next_wid = proc_worker_map[p_idx][next_wid_idx]
+                tgen_src = Source()
+                tgen_src.attach_task(parent=tgen_tc_name, wid=next_wid)
+
+                if next_wid_idx < len(proc_worker_map[p_idx]) - 1:
+                    next_wid_idx += 1
+                else:
+                    next_wid_idx = 0
+
+                unlabeled_data_pkt = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x000000,
+                                                                         pkt_len=TGEN_PKT_SIZE,
+                                                                         src_mac='02:1e:67:9f:4d:ae',
+                                                                         dst_mac='06:16:3e:1b:72:32',
+                                                                         ip_encap=mq_enabled,
+                                                                         src_ip=src_ip,
+                                                                         dst_ip=dst_ip)
+                unlabeled_data_pkt_bytes = bytes(unlabeled_data_pkt)
+
+                # Sends generated traffic on Port1
+                tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> q_out
+
+print('This is the full MDC agent script')
+
+print('Processor count = %d' % NUM_PROCS)
+print('Core count per processor = %d' % NUM_CORES)
+print('Number MDC Receivers = %d' % mdc_rec_count)
+print('Number of ports = %d' % port_count)
+print('Multi-queue enabled = %d' % mq_enabled)
+print('Number of Queues per port = %d' % NUM_QUEUES)
+print('Ping enabled = %d' % PING_ENABLED)
+print('Spark enabled = %s' % SPARK_ENABLED)
+
+# Creates mDC modules: a receiver and control pkt generator
+for mdc_rec_idx in mdc_rec_port:
+    q_inc, q_out = mdc_rec_port[mdc_rec_idx]
+    mdc_rec_name = 'mdc_rec_%d' % mdc_rec_idx
+    rec = MdcReceiver(name=mdc_rec_name,
+                      ip_encap=mq_enabled,
+                      agent_id=AGENT_ID,
+                      agent_label=AGENT_ID,
+                      switch_mac='00:00:00:00:00:00',
+                      agent_mac='00:00:00:00:00:00')
+    # Adds (session address, label) tuples to the MdcReceiver module
+    rec.add(entries=DEFAULT_SESSIONS)
+
+    # packets from the incoming port on ext_gate, are sent to mdc_receiver
+    # port0_inc0 -> 1:mdc_receiver
+    bess.connect_modules(q_inc, rec, igate=1)
+
+    # Processed pkts: unlabeled pkts and update-state ctrl pkts (port0_out0 is TOR output from mdc_receiver)
+    # mdc_receiver:0  -> Queue() -> port0_out0
+    tmp_out_q = Queue()
+    bess.connect_modules(rec, tmp_out_q)
+    bess.connect_modules(tmp_out_q, q_out)
+
+    # TODO: For now, AwsMdcThroughput cannot support multi-queue cases
+    if not SPARK_ENABLED:
+        tmp_sink_q = Queue()
+        sink = Sink()
+        bess.connect_modules(rec, tmp_sink_q, ogate=1)
+        if mq_enabled:
+            bess.connect_modules(tmp_sink_q, sink)
+        else:
+            throughput = AwsMdcThroughput()
+            bess.connect_modules(tmp_sink_q, throughput)
+            bess.connect_modules(throughput, sink)
+
+    # Ping pkts (only for the first receiver)
+    if PING_ENABLED and mdc_rec_idx == 0:
+        ping_pkt = mdcpkts.make_mdc_ping_pkt(agent=AGENT_ID,
+                                             src_mac=PING_SRC_MAC,
+                                             dst_mac=PING_DST_MAC,
+                                             ip_encap=mq_enabled)
+        ping_pkt_bytes = bytes(ping_pkt)
+        mdc_pkt_gen = MdcPktGen(template=ping_pkt_bytes, pps=PING_PKT_RATE)
+        ping_q = Queue()
+        bess.connect_modules(mdc_pkt_gen, ping_q)
+        bess.connect_modules(ping_q, rec, igate=2)
+        ping_q.attach_task(wid=0)
+        mdc_pkt_gen.attach_task(wid=0)
+
+if SPARK_ENABLED:
     # Modules for communication with Spark
     stream_socket = UnixStreamSocketPort(name='stream_socket', path=SPARK_SOCKET_PATH)
     # TODO @parham: Check this line, template should be hdr or complete packet?
@@ -34,70 +215,11 @@ if enable_spark:
     file_writer::FileWriter(write_path=SPARK_RAMDISK_PATH, hdr_len=len(file_reader_template))
     spark_interface::SparkInterface(spark_gate=0, file_gate=1, hdr_len=len(file_reader_template))
 
-
-# assert 64 <= data_pkt_size <= 1024, 'Data pkts needs to be in the range [64, 1024] in bytes'
-
-print('Core count = %d' % num_cores)
-print('Spark enabled = %s' % enable_spark)
-
-ping_pkt = mdcpkts.make_mdc_ping_pkt(agent=AGENT_ID,
-                                     src_mac='F8:F2:1E:3A:13:C4',
-                                     dst_mac='02:53:55:4d:45:00')
-ping_pkt_bytes = bytes(ping_pkt)
-
-# If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
-# TODO: this needs to depend on the CPU layout and where the NIC is.
-start_core = 0
-for i in range(num_cores):
-    bess.add_worker(wid=i, core=i + start_core)
-
-# Define Ports and Queues
-port0::PMDPort(port_id=0, num_inc_q=4, num_out_q=4)
-
-port0_inc0::QueueInc(port=port0, qid=0)
-port0_inc1::QueueInc(port=port0, qid=1)
-port0_out0::QueueOut(port=port0, qid=0)
-port0_out1::QueueOut(port=port0, qid=1)
-
-# Creates mDC modules: a receiver, a control pkt generator and Health check
-mdc_receiver = MdcReceiver(agent_id=AGENT_ID,
-                           agent_label=AGENT_LABEL,
-                           switch_mac=SWITCH_MAC,
-                           agent_mac=AGENT_MAC)
-
-mdc_receiver1 = MdcReceiver(agent_id=AGENT_ID,
-                            agent_label=AGENT_LABEL, 
-                            switch_mac=SWITCH_MAC, 
-                            agent_mac=AGENT_MAC)
-
-mdc_pkt_gen = MdcPktGen(template=ping_pkt_bytes, pps=1e3)
-
-# Adds (session address, label) tuples to the MdcReceiver module
-mdc_receiver.add(entries=[{'addr': '06:16:3e:1b:72:32', 'label': 0x50505050}])
-mdc_receiver1.add(entries=[{'addr': '06:16:3e:1b:72:32', 'label': 0x50505050}])
-
-if enable_spark:
+    # TODO: we need to rethink the MQ support and Spark support
     # Interfacing with spark
     PortInc(port='stream_socket') -> 0:spark_interface:0 -> PortOut(port='stream_socket')
     spark_interface:1 -> file_reader -> 0:mdc_receiver
 
-# packets from the incoming port on ext_gate, are sent to mdc_receiver
-port0_inc0 -> 1:mdc_receiver
-port0_inc1 -> 1:mdc_receiver1
-
-# Processed pkts: unlabeled pkts and update-state ctrl pkts (port0_out0 is TOR output from mdc_receiver)
-mdc_receiver:0  -> Queue() -> port0_out0
-mdc_receiver1:0  -> Queue() -> port0_out1
-
-if enable_spark:
     # If the Agent host has a receiver, sends these pkts to file writer
     # TODO @parham File reader needs to be connected to 1:mdc_receiver
     mdc_receiver:1 -> file_writer -> 1:spark_interface
-else:
-    mdc_receiver:1 -> Queue() -> AwsMdcThroughput() -> Sink()
-
-# Health check pkts
-q::Queue()
-mdc_pkt_gen -> q -> 2:mdc_receiver
-q.attach_task(wid=num_cores-1)
-mdc_pkt_gen.attach_task(wid=num_cores-1)
