@@ -10,10 +10,10 @@ import mdcpkts
 
 # Agent IDs we use: Agent1= 4, Agent2= 16, Agent3= 64
 AGENT_ID = 4
-DEFAULT_SESSIONS = [{'addr': '06:16:3e:1b:72:32', 'label': 0x50505050}]
+DEFAULT_SESSIONS = [{'addr': '06:16:3e:1b:72:32', 'label': 0x50505004}]
 
 # Ping-pong protocol support
-PING_ENABLED = True
+PING_ENABLED = False 
 PING_PKT_RATE = 1e3
 PING_SRC_MAC = 'F8:F2:1E:3A:13:C4'
 PING_DST_MAC = '02:53:55:4d:45:00'
@@ -21,14 +21,15 @@ PING_DST_MAC = '02:53:55:4d:45:00'
 # NUMA and MQ support
 
 # Number of processors to be used
-NUM_PROCS = 1
+#NUM_PROCS = 1
 # Available cores per processor
-NUM_CORES = 8
+NUM_CORES = 20
 # Number of NIC queues for the agent.
 # If TGEN_ENABLED is True, the script will use two extra queues for traffic generation
-NUM_QUEUES = 2
-NIC_PCI_IDS = {0: ['XXX'],
-               1: []
+NUM_QUEUES = 8
+NIC_PCI_IDS = {
+               #0: [],
+               1: [0, 1] #['0000:81:00.0', '0000:81:00.1']
                }
 # CPU layout
 CORE_IDS = {0: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
@@ -37,6 +38,7 @@ CORE_IDS = {0: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
             1: [10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
                 30, 31, 32, 33, 34, 35, 36, 37, 38, 39],
             }
+NUM_PROCS = len(CORE_IDS)
 
 # Spark support
 SPARK_ENABLED = int($MDC_ENABLE_SPARK!False)
@@ -44,10 +46,10 @@ SPARK_RAMDISK_PATH = "/mnt/ramdisk/"
 SPARK_SOCKET_PATH = "/home/hadoop/domain_socket_file"
 
 # Traffic Generator: Use *ONLY* for stress test
-TGEN_ENABLED = False
+TGEN_ENABLED = True 
 # in Gbps
-TGEN_THROUGHPUT = 1
-TGEN_PKT_SIZE = 1024
+TGEN_THROUGHPUT = 9
+TGEN_PKT_SIZE = 64 
 
 # End of configuration
 
@@ -64,34 +66,50 @@ NUM_CORES = curr_num_cores
 
 worker_info_map = {}
 proc_worker_map = {}
-for p_idx in range(NUM_PROCS):
+first_wid = -1
+for p_idx in NIC_PCI_IDS:
     proc_cores = CORE_IDS[p_idx][:NUM_CORES]
     for c_idx, c_id in enumerate(proc_cores):
         w_id = p_idx * NUM_PROCS + c_idx
+	#print(p_idx, c_id, w_id)
         worker_info_map[w_id] = {'core': c_id, 'core_idx': c_idx, 'proc': p_idx}
         if p_idx not in proc_worker_map:
             proc_worker_map[p_idx] = []
         proc_worker_map[p_idx].append(w_id)
         bess.add_worker(wid=w_id, core=c_id)
+	if first_wid == -1:
+		first_wid = w_id
 
 # Define Ports and Queues
+src_count = 8
+ip_list = [
+('7.38.233.147', '55.169.157.31'),
+('208.97.72.186', '157.28.205.149'),
+('117.199.131.176', '79.219.231.247'),
+('213.151.109.0', '44.122.57.30'),
+('138.101.141.33', '197.122.187.56'),
+('228.93.108.53', '64.211.103.156'),
+('178.204.3.28', '4.63.60.250'),
+('16.123.19.226', '10.199.212.27'), 
+]
 mdc_rec_count = 0
 mdc_rec_port = {}
 port_count = 0
+
 for p_idx, nic_list in NIC_PCI_IDS.items():
     next_wid_idx = 0
     for nic_idx, nic_pci_id in enumerate(nic_list):
-        num_queues = NUM_QUEUES + 2 if TGEN_ENABLED else NUM_QUEUES
+        num_queues = NUM_QUEUES+src_count if TGEN_ENABLED else NUM_QUEUES
         port_name = 'port_%d_%d' % (p_idx, nic_idx)
-        PMDPort(name=port_name, pci=nic_pci_id, num_inc_q=num_queues, num_out_q=num_queues)
+        port = PMDPort(name=port_name, port_id=nic_pci_id, num_inc_q=NUM_QUEUES, num_out_q=num_queues)
         port_count += 1
 
         # Create inc/out queues for the agent
         for q_idx in range(NUM_QUEUES):
             q_inc = 'q_inc_%s_%d' % (port_name, q_idx)
             q_out = 'q_out_%s_%d' % (port_name, q_idx)
-            QueueInc(name=q_inc, port=port_name, qid=q_idx)
-            QueueOut(name=q_out, port=port_name, qid=q_idx)
+            QueueInc(name=q_inc, port=port, qid=q_idx)
+            QueueOut(name=q_out, port=port, qid=q_idx)
 
             # Store the mdc_rec_count and (q_inc, q_out) mapping
             mdc_rec_port[mdc_rec_count] = (q_inc, q_out)
@@ -107,33 +125,29 @@ for p_idx, nic_list in NIC_PCI_IDS.items():
                 next_wid_idx = 0
 
         if TGEN_ENABLED:
-            src_count = 2
-            ip_list = [('100.168.1.1', '100.132.44.1'),
-                       ('72.67.48.53', '72.10.30.55'),
-                       ]
             for src_idx in range(src_count):
                 src_ip = ip_list[src_idx % len(ip_list)][0]
                 dst_ip = ip_list[src_idx % len(ip_list)][1]
                 # Creates two output queues
-                q_out = 'q_out_%s_%d' % (port_name, NUM_QUEUES + src_idx)
-                QueueOut(name=q_out, port=port_name, qid=NUM_QUEUES)
+                q_out_name = 'q_out_%s_%d' % (port_name, NUM_QUEUES + src_idx)
+                q_out_tgen = QueueOut(name=q_out_name, port=port_name, qid=NUM_QUEUES+src_idx)
 
-                tgen_pkt_rate = 1./float(src_count) * TGEN_THROUGHPUT * 1e9 / (8 * (TGEN_PKT_SIZE + 24))
-
+                tgen_pkt_rate = (1./float(src_count)) * TGEN_THROUGHPUT * 1e9 / (8 * (TGEN_PKT_SIZE + 24))
+		print(tgen_pkt_rate)
                 tgen_tc_name = 'tgen%d_%d_%d' % (src_idx, p_idx, nic_idx)
+                next_wid = proc_worker_map[p_idx][next_wid_idx]
                 bess.add_tc(tgen_tc_name, policy='rate_limit',
-                            resource='packet', limit={'packet': int(tgen_pkt_rate)})
+                            resource='packet', limit={'packet': int(tgen_pkt_rate)}, wid=next_wid)
 
                 # Creates a source, and limits its pkt rate
-                next_wid = proc_worker_map[p_idx][next_wid_idx]
                 tgen_src = Source()
-                tgen_src.attach_task(parent=tgen_tc_name, wid=next_wid)
+                tgen_src.attach_task(parent=tgen_tc_name)
 
                 if next_wid_idx < len(proc_worker_map[p_idx]) - 1:
                     next_wid_idx += 1
                 else:
                     next_wid_idx = 0
-
+		print(src_ip, dst_ip)
                 unlabeled_data_pkt = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x000000,
                                                                          pkt_len=TGEN_PKT_SIZE,
                                                                          src_mac='02:1e:67:9f:4d:ae',
@@ -142,9 +156,10 @@ for p_idx, nic_list in NIC_PCI_IDS.items():
                                                                          src_ip=src_ip,
                                                                          dst_ip=dst_ip)
                 unlabeled_data_pkt_bytes = bytes(unlabeled_data_pkt)
+		#unlabeled_data_pkt.show()
 
                 # Sends generated traffic on Port1
-                tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> q_out
+                tgen_src -> Rewrite(templates=[unlabeled_data_pkt_bytes]) -> q_out_tgen
 
 print('This is the full MDC agent script')
 
@@ -158,11 +173,12 @@ print('Ping enabled = %d' % PING_ENABLED)
 print('Spark enabled = %s' % SPARK_ENABLED)
 
 # Creates mDC modules: a receiver and control pkt generator
-throughput = AwsMdcThroughput()
-merger = Merge()
+#throughput = AwsMdcThroughput()
+#merger = Merge(name='merger')
 
 for mdc_rec_idx in mdc_rec_port:
     q_inc, q_out = mdc_rec_port[mdc_rec_idx]
+    print(q_inc)
     mdc_rec_name = 'mdc_rec_%d' % mdc_rec_idx
     rec = MdcReceiver(name=mdc_rec_name,
                       ip_encap=mq_enabled,
@@ -175,19 +191,24 @@ for mdc_rec_idx in mdc_rec_port:
 
     # packets from the incoming port on ext_gate, are sent to mdc_receiver
     # port0_inc0 -> 1:mdc_receiver
-    bess.connect_modules(q_inc, rec, igate=1)
+    tmp_sink_rec1_name = 'sink_rec1_%d' % mdc_rec_idx
+    s1 = Sink(name=tmp_sink_rec1_name)
+    #bess.connect_modules(q_inc, mdc_rec_name, igate=1)
+    bess.connect_modules(q_inc, tmp_sink_rec1_name)
 
     # Processed pkts: unlabeled pkts and update-state ctrl pkts (port0_out0 is TOR output from mdc_receiver)
     # mdc_receiver:0  -> Queue() -> port0_out0
-    tmp_out_q = Queue()
-    bess.connect_modules(rec, tmp_out_q)
-    bess.connect_modules(tmp_out_q, q_out)
+    tmp_out_q_name = 'tmp_out_q_%d' % mdc_rec_idx
+    tmp_out_q = Queue(name=tmp_out_q_name)
+    bess.connect_modules(mdc_rec_name, tmp_out_q_name)
+    bess.connect_modules(tmp_out_q_name, q_out)
 
     if not SPARK_ENABLED:
-        tmp_sink_q = Queue()
-        sink = Sink()
-        bess.connect_modules(rec, tmp_sink_q, ogate=1)
-        bess.connect_modules(tmp_sink_q, merger, igate=mdc_rec_idx)
+	tmp_sink_rec_name = 'sink_rec_%d' % mdc_rec_idx
+        tmp_sink_rec = Sink(name=tmp_sink_rec_name)
+        bess.connect_modules(mdc_rec_name, tmp_sink_rec_name, ogate=1)
+        #bess.connect_modules(tmp_sink_q_name, 'merger', igate=mdc_rec_idx)
+        
         # if mq_enabled:
         #     bess.connect_modules(tmp_sink_q, sink)
         # else:
@@ -202,15 +223,15 @@ for mdc_rec_idx in mdc_rec_port:
                                              dst_mac=PING_DST_MAC,
                                              ip_encap=mq_enabled)
         ping_pkt_bytes = bytes(ping_pkt)
-        mdc_pkt_gen = MdcPktGen(template=ping_pkt_bytes, pps=PING_PKT_RATE)
-        ping_q = Queue()
-        bess.connect_modules(mdc_pkt_gen, ping_q)
-        bess.connect_modules(ping_q, rec, igate=2)
-        ping_q.attach_task(wid=0)
-        mdc_pkt_gen.attach_task(wid=0)
+        mdc_pkt_gen::MdcPktGen(template=ping_pkt_bytes, pps=PING_PKT_RATE)
+        ping_q = Queue(name='ping_q')
+        bess.connect_modules('mdc_pkt_gen', 'ping_q')
+        bess.connect_modules('ping_q', mdc_rec_name, igate=2)
+        ping_q.attach_task(wid=first_wid)
+        mdc_pkt_gen.attach_task(wid=first_wid)
 
 
-merger -> throughput -> Sink()
+#merger -> Queue() -> throughput -> Sink()
 
 if SPARK_ENABLED:
     # Modules for communication with Spark

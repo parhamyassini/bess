@@ -495,7 +495,7 @@ if (ret1 != 0) {
 std::cout << ":(" << std::endl;
 out_label1 = 0x00; 
 }
-//std::cout << std::hex << out_label1 << std::endl;
+// std::cout << std::hex << out_label1 << std::dec << std::endl;
 //*/
     }
 
@@ -518,9 +518,9 @@ void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt){
 	std::cout << ":(" << std::endl;
         out_label = 0x00;
     }
-    
-    agent_is_only_recv = ((~agent_label_ & ~out_label) == ~agent_label_);              
-    if((agent_id_ & out_label) == agent_id_) { // Agent is in destination list
+    mdc_label_t tor_label = out_label & 0x000000ff; 
+    agent_is_only_recv = ((~agent_label_ & ~tor_label) == ~agent_label_);              
+    if((agent_id_ & tor_label) == agent_id_) { // Agent is in destination list
         if (!agent_is_only_recv) {
             bess::Packet *newpkt = bess::Packet::copy(pkt);
             if (newpkt) {
@@ -530,9 +530,16 @@ void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt){
                 EmitPacket(ctx, pkt, MDC_OUTPUT_INTERNAL);
         }
     }
+    // std::cout << "LABEL" << out_label << std::endl;
+    // std::cout << (~agent_label_ & ~tor_label) << std::endl;
+    // std::cout << ~agent_label_  << std::endl;
     if (agent_is_only_recv) {
+	//std::cout << "HI" << std::endl;
         return;
-    }
+    } 
+    //else {
+    //std::cout << "BYE" << std::endl;
+    //}
 
     be64_t *p1 = pkt->head_data<be64_t *>(sizeof(Ethernet));
     if(!ip_encap_) {
@@ -573,8 +580,12 @@ void MdcReceiver::DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch) {
         be64_t *p = pkt->head_data<be64_t *>(sizeof(Ethernet));
         uint8_t mdc_type = p->raw_value() & MDC_PKT_TYPE_MASK;
         if(ip_encap_) {
-            mdc_type = p->raw_value() & MDC_PKT_IP_TYPE_MASK;
+            mdc_type = (p->raw_value() & MDC_PKT_IP_TYPE_MASK) >> 32;
         }
+
+	// std::cout << ((p->raw_value() & MDC_PKT_IP_TYPE_MASK) >> 32) << std::endl;
+	// std::cout << std::hex << *p << std::dec << std::endl;
+
         int ret = -1;
         mac_addr_t address;
         mdc_label_t tmp_label, new_label;
