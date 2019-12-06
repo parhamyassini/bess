@@ -23,13 +23,13 @@ PING_DST_MAC = '02:53:55:4d:45:00'
 # Number of processors to be used
 #NUM_PROCS = 1
 # Available cores per processor
-NUM_CORES = 20
+NUM_CORES = 10 #20
 # Number of NIC queues for the agent.
 # If TGEN_ENABLED is True, the script will use two extra queues for traffic generation
-NUM_QUEUES = 8
+NUM_QUEUES = 4
 NIC_PCI_IDS = {
-               #0: [],
-               1: [0, 1] #['0000:81:00.0', '0000:81:00.1']
+               0: [0, 1],
+               #1: [0, 1], 
                }
 # CPU layout
 CORE_IDS = {0: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
@@ -48,7 +48,7 @@ SPARK_SOCKET_PATH = "/home/hadoop/domain_socket_file"
 # Traffic Generator: Use *ONLY* for stress test
 TGEN_ENABLED = True 
 # in Gbps
-TGEN_THROUGHPUT = 9
+TGEN_THROUGHPUT = 10
 TGEN_PKT_SIZE = 64 
 
 # End of configuration
@@ -81,7 +81,7 @@ for p_idx in NIC_PCI_IDS:
 		first_wid = w_id
 
 # Define Ports and Queues
-src_count = 8
+src_count = NUM_QUEUES
 ip_list = [
 ('7.38.233.147', '55.169.157.31'),
 ('208.97.72.186', '157.28.205.149'),
@@ -101,7 +101,7 @@ for p_idx, nic_list in NIC_PCI_IDS.items():
     for nic_idx, nic_pci_id in enumerate(nic_list):
         num_queues = NUM_QUEUES+src_count if TGEN_ENABLED else NUM_QUEUES
         port_name = 'port_%d_%d' % (p_idx, nic_idx)
-        port = PMDPort(name=port_name, port_id=nic_pci_id, num_inc_q=NUM_QUEUES, num_out_q=num_queues)
+        port = PMDPort(name=port_name, port_id=nic_pci_id, num_inc_q=NUM_QUEUES, num_out_q=num_queues, size_inc_q=4*1024)
         port_count += 1
 
         # Create inc/out queues for the agent
@@ -124,7 +124,7 @@ for p_idx, nic_list in NIC_PCI_IDS.items():
             else:
                 next_wid_idx = 0
 
-        if TGEN_ENABLED:
+        if TGEN_ENABLED: # and nic_idx == 0:
             for src_idx in range(src_count):
                 src_ip = ip_list[src_idx % len(ip_list)][0]
                 dst_ip = ip_list[src_idx % len(ip_list)][1]
@@ -193,8 +193,9 @@ for mdc_rec_idx in mdc_rec_port:
     # port0_inc0 -> 1:mdc_receiver
     tmp_sink_rec1_name = 'sink_rec1_%d' % mdc_rec_idx
     s1 = Sink(name=tmp_sink_rec1_name)
-    #bess.connect_modules(q_inc, mdc_rec_name, igate=1)
-    bess.connect_modules(q_inc, tmp_sink_rec1_name)
+    bess.connect_modules(q_inc, mdc_rec_name, igate=1)
+    
+    #bess.connect_modules(q_inc, tmp_sink_rec1_name)
 
     # Processed pkts: unlabeled pkts and update-state ctrl pkts (port0_out0 is TOR output from mdc_receiver)
     # mdc_receiver:0  -> Queue() -> port0_out0
@@ -202,6 +203,10 @@ for mdc_rec_idx in mdc_rec_port:
     tmp_out_q = Queue(name=tmp_out_q_name)
     bess.connect_modules(mdc_rec_name, tmp_out_q_name)
     bess.connect_modules(tmp_out_q_name, q_out)
+    if mdc_rec_idx in [0, 1]:
+        bess.attach_task(module_name=tmp_out_q_name, wid=mdc_rec_idx + 8)
+    if mdc_rec_idx in [2, 3]:
+        bess.attach_task(module_name=tmp_out_q_name, wid=mdc_rec_idx + 6)
 
     if not SPARK_ENABLED:
 	tmp_sink_rec_name = 'sink_rec_%d' % mdc_rec_idx
