@@ -10,7 +10,9 @@ import mdcpkts
 
 # Agent IDs we use: Agent1= 4, Agent2= 16, Agent3= 64
 AGENT_ID = 4
-DEFAULT_SESSIONS = [{'addr': '06:16:3e:1b:72:32', 'label': 0x50505004}]
+DEFAULT_SESSIONS_1 = [{'addr': '06:16:3e:1b:72:31', 'label': 0x50505054}]
+DEFAULT_SESSIONS_2 = [{'addr': '06:16:3e:1b:72:32', 'label': 0x50505054}]
+DEFAULT_SESSIONS_3 = [{'addr': '06:16:3e:1b:72:33', 'label': 0x50505054}]
 
 # Ping-pong protocol support
 PING_ENABLED = False 
@@ -28,8 +30,8 @@ NUM_CORES = 20
 # If TGEN_ENABLED is True, the script will use two extra queues for traffic generation
 NUM_QUEUES = 8
 NIC_PCI_IDS = {
-               #0: [],
-               1: [0, 1] #['0000:81:00.0', '0000:81:00.1']
+               0: [],
+               1: [2, 3], #, 4, 5] #['0000:81:00.0', '0000:81:00.1']
                }
 # CPU layout
 CORE_IDS = {0: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
@@ -38,6 +40,8 @@ CORE_IDS = {0: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
             1: [10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
                 30, 31, 32, 33, 34, 35, 36, 37, 38, 39],
             }
+
+
 NUM_PROCS = len(CORE_IDS)
 
 # Spark support
@@ -46,9 +50,9 @@ SPARK_RAMDISK_PATH = "/mnt/ramdisk/"
 SPARK_SOCKET_PATH = "/home/hadoop/domain_socket_file"
 
 # Traffic Generator: Use *ONLY* for stress test
-TGEN_ENABLED = True 
+TGEN_ENABLED = False 
 # in Gbps
-TGEN_THROUGHPUT = 9
+TGEN_THROUGHPUT = 10
 TGEN_PKT_SIZE = 64 
 
 # End of configuration
@@ -66,19 +70,21 @@ NUM_CORES = curr_num_cores
 
 worker_info_map = {}
 proc_worker_map = {}
+next_wid = 0
 first_wid = -1
 for p_idx in NIC_PCI_IDS:
     proc_cores = CORE_IDS[p_idx][:NUM_CORES]
     for c_idx, c_id in enumerate(proc_cores):
-        w_id = p_idx * NUM_PROCS + c_idx
-	#print(p_idx, c_id, w_id)
-        worker_info_map[w_id] = {'core': c_id, 'core_idx': c_idx, 'proc': p_idx}
+        #w_id = p_idx * NUM_PROCS + c_idx
+	#print(p_idx, c_id, next_wid)
+        worker_info_map[next_wid] = {'core': c_id, 'core_idx': c_idx, 'proc': p_idx}
         if p_idx not in proc_worker_map:
             proc_worker_map[p_idx] = []
-        proc_worker_map[p_idx].append(w_id)
-        bess.add_worker(wid=w_id, core=c_id)
+        proc_worker_map[p_idx].append(next_wid)
+        bess.add_worker(wid=next_wid, core=c_id)
+        next_wid += 1
 	if first_wid == -1:
-		first_wid = w_id
+		first_wid = next_wid
 
 # Define Ports and Queues
 src_count = 8
@@ -101,7 +107,7 @@ for p_idx, nic_list in NIC_PCI_IDS.items():
     for nic_idx, nic_pci_id in enumerate(nic_list):
         num_queues = NUM_QUEUES+src_count if TGEN_ENABLED else NUM_QUEUES
         port_name = 'port_%d_%d' % (p_idx, nic_idx)
-        port = PMDPort(name=port_name, port_id=nic_pci_id, num_inc_q=NUM_QUEUES, num_out_q=num_queues)
+        port = PMDPort(name=port_name, port_id=nic_pci_id, num_inc_q=NUM_QUEUES, num_out_q=num_queues, size_inc_q=4*1024, size_out_q=4*1024)
         port_count += 1
 
         # Create inc/out queues for the agent
@@ -111,13 +117,13 @@ for p_idx, nic_list in NIC_PCI_IDS.items():
             QueueInc(name=q_inc, port=port, qid=q_idx)
             QueueOut(name=q_out, port=port, qid=q_idx)
 
-            # Store the mdc_rec_count and (q_inc, q_out) mapping
-            mdc_rec_port[mdc_rec_count] = (q_inc, q_out)
-            mdc_rec_count += 1
-
             # Assign queues to workers
             next_wid = proc_worker_map[p_idx][next_wid_idx]
             bess.attach_task(module_name=q_inc, wid=next_wid)
+
+            # Store the mdc_rec_count and (q_inc, q_out) mapping
+            mdc_rec_port[mdc_rec_count] = (q_inc, q_out, next_wid)
+            mdc_rec_count += 1
 
             if next_wid_idx < len(proc_worker_map[p_idx]) - 1:
                 next_wid_idx += 1
@@ -177,7 +183,7 @@ print('Spark enabled = %s' % SPARK_ENABLED)
 #merger = Merge(name='merger')
 
 for mdc_rec_idx in mdc_rec_port:
-    q_inc, q_out = mdc_rec_port[mdc_rec_idx]
+    q_inc, q_out, rec_wid = mdc_rec_port[mdc_rec_idx]
     print(q_inc)
     mdc_rec_name = 'mdc_rec_%d' % mdc_rec_idx
     rec = MdcReceiver(name=mdc_rec_name,
@@ -187,21 +193,42 @@ for mdc_rec_idx in mdc_rec_port:
                       switch_mac='00:00:00:00:00:00',
                       agent_mac='00:00:00:00:00:00')
     # Adds (session address, label) tuples to the MdcReceiver module
-    rec.add(entries=DEFAULT_SESSIONS)
+    #if mdc_rec_idx in [0, 1]:
+    #    rec.add(entries=DEFAULT_SESSIONS_2)
+    out_wid = 39
+    if mdc_rec_idx in range(0, 16): #[8, 9, 10, 11, 12, 13, 14, 15]:
+        rec.add(entries=DEFAULT_SESSIONS_1)
+        out_wid = rec_wid #36 + int(mdc_rec_idx/4)
+        print('XXX', mdc_rec_idx, out_wid)
+        #if mdc_rec_idx in range(8, 9):
+        #    out_wid = 36
+        #else:
+        #    out_wid = 37
+    #if mdc_rec_idx in range(0, 8):
+    #    out_wid = 19
+    #if mdc_rec_idx in [4, 5]:
+    #    rec.add(entries=DEFAULT_SESSIONS_3)
 
     # packets from the incoming port on ext_gate, are sent to mdc_receiver
     # port0_inc0 -> 1:mdc_receiver
     tmp_sink_rec1_name = 'sink_rec1_%d' % mdc_rec_idx
     s1 = Sink(name=tmp_sink_rec1_name)
-    #bess.connect_modules(q_inc, mdc_rec_name, igate=1)
-    bess.connect_modules(q_inc, tmp_sink_rec1_name)
+    #tmp_q_inc_name = 'tmp_q_inc_%d' % mdc_rec_idx
+    #tmp_q_inc = Queue(name=tmp_q_inc_name, size=4096)
+    #bess.connect_modules(q_inc, tmp_q_inc_name)
+    bess.connect_modules(q_inc, mdc_rec_name, igate=1)
+    #bess.attach_task(module_name=tmp_q_inc_name, wid=rec_wid)
+    #bess.connect_modules(q_inc, tmp_sink_rec1_name)
+    #bess.connect_modules(q_inc, q_out)
 
     # Processed pkts: unlabeled pkts and update-state ctrl pkts (port0_out0 is TOR output from mdc_receiver)
     # mdc_receiver:0  -> Queue() -> port0_out0
     tmp_out_q_name = 'tmp_out_q_%d' % mdc_rec_idx
-    tmp_out_q = Queue(name=tmp_out_q_name)
+    tmp_out_q = Queue(name=tmp_out_q_name, size=2048)
     bess.connect_modules(mdc_rec_name, tmp_out_q_name)
+    #bess.connect_modules(tmp_out_q_name, tmp_sink_rec1_name)
     bess.connect_modules(tmp_out_q_name, q_out)
+    bess.attach_task(module_name=tmp_out_q_name, wid=out_wid)
 
     if not SPARK_ENABLED:
 	tmp_sink_rec_name = 'sink_rec_%d' % mdc_rec_idx
