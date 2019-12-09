@@ -508,6 +508,7 @@ CommandResponse MdcReceiver::CommandClear(const bess::pb::EmptyArg &) {
 
 void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt){
     // This is the dst_mac address from Ethernet header.
+    uint64_t start_tsc = rdtsc();
     mac_addr_t address = *(pkt->head_data<uint64_t *>()) & 0x0000ffffffffffff;
     mdc_label_t out_label = 0x50;
     int ret = -1;
@@ -556,8 +557,28 @@ void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt){
         be64_t *p2 = p1 + 1;
         *p2 = *p2 | ((be64_t(out_label & ~agent_label_)) << 32);
     }
-
+    uint64_t end_tsc = rdtsc() - start_tsc;
     EmitPacket(ctx, pkt, MDC_OUTPUT_TOR);
+
+    if (unlikely(!p_latency_first_pkt_rec_ns_)) {
+        p_latency_first_pkt_rec_ns_ = start_tsc;
+    }
+
+    if (p_latency_enabled_) {
+        // Pkt received
+        p_latency_rtt_hist_.Insert(end_tsc);
+        // a hack to collect results
+        if (p_latency_first_pkt_rec_ns_ && (start_tsc - p_latency_first_pkt_rec_ns_) >= 60'000'000'000) {
+            p_latency_enabled_ = false;
+            std::vector<double> latency_percentiles{50, 95, 99, 99.9, 99.99};
+            const auto &rtt = p_latency_rtt_hist_.Summarize(latency_percentiles);
+            std::cout << rtt.avg;
+            std::cout << rtt.min;
+            std::cout << rtt.max;
+            for (int percentile_value : rtt.percentile_values)
+                std::cout << percentile_value;
+        }
+    }
 }
 
 void MdcReceiver::DoProcessAppBatch(Context *ctx, bess::PacketBatch *batch) {

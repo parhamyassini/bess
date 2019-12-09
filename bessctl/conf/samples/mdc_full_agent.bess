@@ -25,10 +25,10 @@ PING_DST_MAC = '02:53:55:4d:45:00'
 # Number of processors to be used
 #NUM_PROCS = 1
 # Available cores per processor
-NUM_CORES = 20
+NUM_CORES = 10 #20
 # Number of NIC queues for the agent.
 # If TGEN_ENABLED is True, the script will use two extra queues for traffic generation
-NUM_QUEUES = 8
+NUM_QUEUES = 4
 NIC_PCI_IDS = {
                0: [],
                1: [2, 3], #, 4, 5] #['0000:81:00.0', '0000:81:00.1']
@@ -87,7 +87,7 @@ for p_idx in NIC_PCI_IDS:
 		first_wid = next_wid
 
 # Define Ports and Queues
-src_count = 8
+src_count = NUM_QUEUES
 ip_list = [
 ('7.38.233.147', '55.169.157.31'),
 ('208.97.72.186', '157.28.205.149'),
@@ -130,7 +130,7 @@ for p_idx, nic_list in NIC_PCI_IDS.items():
             else:
                 next_wid_idx = 0
 
-        if TGEN_ENABLED:
+        if TGEN_ENABLED: # and nic_idx == 0:
             for src_idx in range(src_count):
                 src_ip = ip_list[src_idx % len(ip_list)][0]
                 dst_ip = ip_list[src_idx % len(ip_list)][1]
