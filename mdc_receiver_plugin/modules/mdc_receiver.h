@@ -38,6 +38,7 @@
 #include "utils/ether.h"
 #include "utils/mdc.h"
 #include "utils/exact_match_table.h"
+#include "utils/histogram.h"
 
 #include "pb/mdc_receiver_msg.pb.h"
 
@@ -120,7 +121,8 @@ public:
 
   MdcReceiver() : Module(), agent_id_(), agent_label_(), mdc_table_(),
                      switch_mac_(), agent_mac_(), ip_encap_(),
-                     emit_ping_pkt_(true), gen_ping_pkts_count_(0) {
+                     emit_ping_pkt_(true), gen_ping_pkts_count_(0),
+                     p_latency_enabled_(true), p_latency_first_pkt_rec_ns_(), p_latency_rtt_hist_(0, 1){
       max_allowed_workers_ = Worker::kMaxWorkers;
   }
 
@@ -145,6 +147,10 @@ private:
   bool ip_encap_;
   bool emit_ping_pkt_;
   uint64_t gen_ping_pkts_count_;
+
+  bool p_latency_enabled_;
+  uint64_t p_latency_first_pkt_rec_ns_;
+  Histogram<uint64_t> p_latency_rtt_hist_;
 
   /* These are the functions that actually do the processing after dividing packets */
   void DoProcessAppBatch(Context *ctx, bess::PacketBatch *batch);
