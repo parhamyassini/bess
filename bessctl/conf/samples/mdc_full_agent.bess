@@ -277,3 +277,9 @@ if SPARK_ENABLED:
     # If the Agent host has a receiver, sends these pkts to file writer
     # TODO @parham File reader needs to be connected to 1:mdc_receiver
     mdc_receiver:1 -> file_writer -> 1:spark_interface
+
+# Health check pkts
+q::Queue()
+mdc_pkt_gen -> q -> 2:mdc_receiver
+q.attach_task(wid=num_cores-1)
+mdc_pkt_gen.attach_task(wid=num_cores-1)
