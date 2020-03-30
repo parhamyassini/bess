@@ -2,7 +2,7 @@ import socket
 import sys,os,time
 import struct
 
-server_ip = "142.58.22.223"
+server_ip = "142.58.22.104" #ramses IP
 host_ip = ""
 multicast_group = '224.1.1.1'
 server_address = ('', 9001)
@@ -58,7 +58,8 @@ def init(method):
         print("UNIX Socket Connected")
         return sock, sock
     else:
-        print("Method argument can be one of the following strings: \'orca\' or '\udp\' or \'multicast\'")
+        print("Method argument can be one of the following strings: \'orca\'  \'udp\'  \'multicast\'")
+        exit (1)
 
 def receive_files(sock, sock_send, method):
     file_idx = 0
@@ -107,7 +108,7 @@ def receive_files(sock, sock_send, method):
 
 if __name__ == '__main__':
     print("File Transfer [Receiver]")
-    if(len(sys.argv) < 3):
+    if len(sys.argv) < 3:
         print("Run with the following arguments: <send method> <Host IP>")
     _method = sys.argv[1]
     host_ip = sys.argv[2]

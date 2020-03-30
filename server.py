@@ -16,8 +16,8 @@ files = [(path, os.stat(path).st_size) for path in paths]
 # for path, size in sizes:
 #     files[size].append(path)
 #print (files)
-server_ip = "142.58.22.223"
-hosts = ["142.58.22.215", "142.58.22.235"]
+server_ip = "142.58.22.104" #Ramses IP
+hosts = ["142.58.22.215", "142.58.22.223", "142.58.22.136", "142.58.22.126"]
 multicast_group = ('224.1.1.1', 9001)
 
 host_times = []
@@ -29,16 +29,16 @@ p_list = []
 def send_thread(p_id, file_name, host, sock):
     print ('p_id: ' + str(p_id))
     with open(file_name) as reader:
-        data = reader.read(1024)
+        data = reader.read(900)
         while (data):
             sock.sendto(data, (host,port))
-            data = reader.read(1024)
+            data = reader.read(900)
         print("File Sent " + str(p_id))
 
 def receive_thread(recv_sock, method):
     ack_count = 0
     if method == "udp" or method == "multicast":
-        data, addr = recv_sock.recvfrom(1024)
+        data, addr = recv_sock.recvfrom(900)
     
     elif method == "orca":
         data = recv_sock.recv(900)
@@ -52,7 +52,7 @@ def receive_thread(recv_sock, method):
             print("Got all acks..")
             break
         if method == "udp" or method == "multicast":
-            data, addr = recv_sock.recvfrom(1024)
+            data, addr = recv_sock.recvfrom(900)
         elif method == "orca":
             data = recv_sock.recv(900)
 
@@ -86,6 +86,9 @@ def init(method):
             sys.exit(1)
         print("UNIX Socket Created")
         return sock, sock
+    else:
+        print("Method argument can be one of the following strings: \'orca\'  \'udp\'  \'multicast\'")
+        exit(1)
 
 def send_orca(file_name, sock):
     with open(file_name) as reader:
@@ -97,10 +100,10 @@ def send_orca(file_name, sock):
 
 def send_multicast(file_name, sock):
     with open(file_name) as reader:
-        data = reader.read(1024)
+        data = reader.read(900)
         while (data):
             sock.sendto(data, multicast_group)
-            data = reader.read(1024)
+            data = reader.read(900)
     print("File Sent")
     
 def send_files(sock, recv_sock, method):
@@ -122,10 +125,11 @@ def send_files(sock, recv_sock, method):
 
 if __name__ == '__main__':
     print("File Transfer [Sender]")
-    #unix_socket_send()
-    _method="multicast"
+    if len(sys.argv) < 2:
+        print("Run with the following arguments: <send method> <Host IP>")
+    _method = sys.argv[1]
+    print("Config Send Method: " + _method)
     sock, recv_sock = init(method=_method)
     send_files(sock, recv_sock, _method)
 
-
-sys.exit()    
+sys.exit()
