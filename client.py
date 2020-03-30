@@ -3,7 +3,7 @@ import sys,os,time
 import struct
 
 server_ip = "142.58.22.223"
-host_ip = "142.58.22.215"
+host_ip = ""
 multicast_group = '224.1.1.1'
 server_address = ('', 9001)
 
@@ -14,6 +14,7 @@ files = [('./broadcast_files/broadcast_17', 3573), ('./broadcast_files/broadcast
 total_written_bytes = [0] * len(files)
 
 def init(method):
+    print("Config Host IP: " + host_ip)
     if method == "udp":
         sock_send = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
         sock_send.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -56,6 +57,8 @@ def init(method):
             sys.exit(1)
         print("UNIX Socket Connected")
         return sock, sock
+    else:
+        print("Method argument can be one of the following strings: \'orca\' or '\udp\' or \'multicast\'")
 
 def receive_files(sock, sock_send, method):
     file_idx = 0
@@ -66,7 +69,7 @@ def receive_files(sock, sock_send, method):
     
     writer = open(files[file_idx][0],"wb")
     if method == "udp" or method == "multicast":
-        data, addr = sock.recvfrom(1024)
+        data, addr = sock.recvfrom(900)
         
     elif method == "orca":
         data = sock.recv(900)
@@ -98,13 +101,17 @@ def receive_files(sock, sock_send, method):
                     print("Closing..")
                     sys.exit()
         if method == "udp":
-            data, addr = sock.recvfrom(1024)
+            data, addr = sock.recvfrom(900)
         elif method == "orca" or method == "multicast":
-            data = sock.recv(1024)
+            data = sock.recv(900)
 
 if __name__ == '__main__':
     print("File Transfer [Receiver]")
-    _method = "multicast"
+    if(len(sys.argv) < 3):
+        print("Run with the following arguments: <send method> <Host IP>")
+    _method = sys.argv[1]
+    host_ip = sys.argv[2]
+    print("Config Send Method: " + _method)
     sock, sock_send = init(method=_method)
     receive_files(sock, sock_send, _method)
 
