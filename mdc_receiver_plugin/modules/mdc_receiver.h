@@ -151,7 +151,7 @@ private:
   bool p_latency_enabled_;
   uint64_t p_latency_first_pkt_rec_ns_;
   Histogram<uint64_t> p_latency_rtt_hist_;
-
+  int total_pkt_debug = 0;
   /* These are the functions that actually do the processing after dividing packets */
   void DoProcessAppBatch(Context *ctx, bess::PacketBatch *batch);
   void DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch);

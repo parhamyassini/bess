@@ -513,10 +513,10 @@ void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt){
     mdc_label_t out_label = 0x50;
     int ret = -1;
     bool agent_is_only_recv = 0;
-    
+    std::cout << "Address: " << address << std::endl;
     ret = mdc_find(&mdc_table_, address, &out_label);
     if (ret != 0) {
-	std::cout << ":(" << std::endl;
+	    std::cout << ":(" << std::endl;
         out_label = 0x00;
     }
     mdc_label_t tor_label = out_label & 0x000000ff; 
@@ -531,7 +531,7 @@ void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt){
                 EmitPacket(ctx, pkt, MDC_OUTPUT_INTERNAL);
         }
     }
-    // std::cout << "LABEL" << out_label << std::endl;
+     std::cout << "LABEL" << out_label << std::endl;
     // std::cout << (~agent_label_ & ~tor_label) << std::endl;
     // std::cout << ~agent_label_  << std::endl;
     if (agent_is_only_recv) {
@@ -558,6 +558,11 @@ void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt){
         *p2 = *p2 | ((be64_t(out_label & ~agent_label_)) << 32);
     }
     uint64_t end_tsc = rdtsc() - start_tsc;
+    
+    total_pkt_debug ++;
+    //LOG(INFO) << "EMITTED TOTAL: " << total_pkt_debug; 
+    //LOG(INFO) << "Emitted packet "; 
+    //LOG(INFO) << "total len: " << pkt->total_len(); 
     EmitPacket(ctx, pkt, MDC_OUTPUT_TOR);
 
     if (unlikely(!p_latency_first_pkt_rec_ns_)) {
@@ -584,7 +589,7 @@ void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt){
 void MdcReceiver::DoProcessAppBatch(Context *ctx, bess::PacketBatch *batch) {
     /* Process internal packets */
     int cnt = batch->cnt();
-    
+    //LOG(INFO) << "GOT BATCH OF : " << cnt;
     for (int i = 0; i < cnt; i++) {
         bess::Packet *pkt = batch->pkts()[i];
         LabelAndSendPacket(ctx, pkt);
@@ -597,7 +602,9 @@ void MdcReceiver::DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch) {
     int cnt = batch->cnt();
 
     for (int i = 0; i < cnt; i++) {
+        
         bess::Packet *pkt = batch->pkts()[i];
+        //LOG(INFO)<< "RECEIVED LEN: " << pkt->total_len();
         be64_t *p = pkt->head_data<be64_t *>(sizeof(Ethernet));
         uint8_t mdc_type = p->raw_value() & MDC_PKT_TYPE_MASK;
         if(ip_encap_) {
@@ -617,9 +624,11 @@ void MdcReceiver::DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch) {
                 break;
             case MDC_TYPE_LABELED: // It's a data pkt and labled so send to FileWriter module
                 EmitPacket(ctx, pkt, MDC_OUTPUT_INTERNAL);
+                //LOG(INFO)<< "Labled Packet, sending to filewriter";
                 break;
             case MDC_TYPE_PONG:
                 emit_ping_pkt_ = true;
+                LOG(INFO)<< "Dropping Packet!";
 		        DropPacket(ctx, pkt);
                 break;
             case MDC_TYPE_PING:
@@ -657,10 +666,12 @@ void MdcReceiver::DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch) {
                     *p = *p | (be64_t(agent_id_) << 48); // 6 byte shift since "type" is before agent id
                     EmitPacket(ctx, pkt, MDC_OUTPUT_TOR);
                 } else {
+                    LOG(INFO) << "Dropping Packet!";
                     DropPacket(ctx, pkt);
                 }
                 break;
             default:
+                LOG(INFO) << "Dropping Packet!";
                 DropPacket(ctx, pkt);
                 break;
         }
@@ -669,10 +680,13 @@ void MdcReceiver::DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch) {
 
 void MdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
     gate_idx_t incoming_gate = ctx->current_igate;
-
+    //LOG(INFO)<<"DELAY";
+    // LOG(INFO)<<"Delays are good";
     if (incoming_gate == MDC_INPUT_APP) {
+        //LOG(INFO)<<"APP";
         DoProcessAppBatch(ctx, batch);
     } else {
+        //LOG(INFO)<<"EXT";
         DoProcessExtBatch(ctx, batch);
     }
 

@@ -14,8 +14,8 @@ import mdcpkts
 # port3: 64
 SPARK_RAMDISK_PATH = "/mnt/ramdisk/"
 SPARK_SOCKET_PATH = "/home/pyassini/domain_socket_file"
-AGENT_ID = 64
-AGENT_LABEL = 0x40
+AGENT_ID = 4
+AGENT_LABEL = 0x04
 AGENT_NIC = '0000:7e:00.0'
 SWITCH_MAC = '06:a6:7e:72:37:92'
 AGENT_MAC = '06:9f:da:98:a4:76'
@@ -33,8 +33,8 @@ if enable_spark:
     
     
     # TODO @parham: Check this line, template should be hdr or complete packet?
-    unlabeled_data_header = mdcpkts.mdc_unlabeled_data_hdr(label=0x50505014)
-    file_reader_template = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x50505014, pkt_len=0, src_mac='06:16:3e:1b:72:32', dst_mac='02:53:55:4d:45:01') 
+    unlabeled_data_header = mdcpkts.mdc_unlabeled_data_hdr(label=0x50505001)
+    file_reader_template = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x50505001, pkt_len=0, src_mac='06:16:3e:1b:72:32', dst_mac='02:53:55:4d:45:01') 
     stream_socket = UnixSocketPort(name='stream_socket', path=SPARK_SOCKET_PATH, template=bytes(file_reader_template))
     #print("File reader template len: " + str(len(file_reader_template)))
     #file_reader::SignalFileReader(template=bytes(file_reader_template))
@@ -58,7 +58,7 @@ mdc_receiver = MdcReceiver(agent_id=AGENT_ID,
                            agent_mac=AGENT_MAC)
 
 # Adds (session address, label) tuples to the MdcReceiver module
-mdc_receiver.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505014}])
+mdc_receiver.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505001}])
 
  
 # If in NUMA system, ensure to use CPU cores in the same socket of your NIC.

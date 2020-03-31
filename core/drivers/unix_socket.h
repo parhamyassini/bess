@@ -43,6 +43,9 @@
 
 #include "../utils/syscallthread.h"
 
+#define MAX_TOTAL_PACKET_SIZE 1024
+using bess::utils::Ethernet;
+using bess::utils::be64_t;
 class UnixSocketPort;
 
 // We promise to block only in ppoll(),
@@ -97,6 +100,8 @@ class UnixSocketPort final : public Port {
   int SendPackets(queue_t qid, bess::Packet **pkts, int cnt) override;
 
  private:
+  unsigned int h_size_;
+  uint8_t templ_[MAX_TOTAL_PACKET_SIZE];
   // Value for a disconnected socket.
   static const int kNotConnectedFd = -1;
   friend class UnixSocketAcceptThread;
