@@ -108,8 +108,13 @@ def receive_files(sock, sock_send, method):
 
 if __name__ == '__main__':
     print("File Transfer [Receiver]")
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 2:
         print("Run with the following arguments: <send method> <Host IP>")
+        exit(1)
+    elif sys.argv[1]!="orca" and len(sys.argv) < 2:
+        print("Host IP should be passed as argument when using udp")
+        print("Run with the following arguments: <send method> <Host IP>")
+        exit(1)
     _method = sys.argv[1]
     host_ip = sys.argv[2]
     print("Config Send Method: " + _method)

@@ -126,7 +126,8 @@ def send_files(sock, recv_sock, method):
 if __name__ == '__main__':
     print("File Transfer [Sender]")
     if len(sys.argv) < 2:
-        print("Run with the following arguments: <send method> <Host IP>")
+        print("Run with the following arguments: <send method>")
+        exit(1)
     _method = sys.argv[1]
     print("Config Send Method: " + _method)
     sock, recv_sock = init(method=_method)

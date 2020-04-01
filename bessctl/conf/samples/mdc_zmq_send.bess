@@ -74,7 +74,7 @@ port1::PMDPort(port_id=1, num_inc_q=1, num_out_q=1)
 port0_inc0::QueueInc(port=port0, qid=0)
 port0_out0::QueueOut(port=port0, qid=0)
 port1_inc0::QueueInc(port=port1, qid=0)
-port1_out0::QueueInc(port=port1, qid=0)
+port1_out0::QueueOut(port=port1, qid=0)
 
 # Creates mDC modules: a receiver, a control pkt generator and Health check
 
