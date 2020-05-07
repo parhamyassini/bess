@@ -424,7 +424,7 @@ MdcReceiver::Init(const sample::mdc_receiver::pb::MdcReceiverArg &arg) {
     int ret = 0;
     int size = MDC_DEFAULT_TABLE_SIZE;
     int bucket = MDC_MAX_BUCKET_SIZE;
-
+    LOG(INFO) << "PARHAM";
     ip_encap_ = arg.ip_encap();
 
     // Parses Agent ID
@@ -462,7 +462,7 @@ void MdcReceiver::DeInit() {
 
 CommandResponse MdcReceiver::CommandAdd(
         const sample::mdc_receiver::pb::MdcReceiverCommandAddArg &arg) {
-
+ LOG(INFO) << "Adding label to table";
     for (int i = 0; i < arg.entries_size(); i++) {
         const auto &entry = arg.entries(i);
 
@@ -683,10 +683,10 @@ void MdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
     //LOG(INFO)<<"DELAY";
     // LOG(INFO)<<"Delays are good";
     if (incoming_gate == MDC_INPUT_APP) {
-        //LOG(INFO)<<"APP";
+        LOG(INFO)<<"APP";
         DoProcessAppBatch(ctx, batch);
     } else {
-        //LOG(INFO)<<"EXT";
+        LOG(INFO)<<"EXT";
         DoProcessExtBatch(ctx, batch);
     }
 

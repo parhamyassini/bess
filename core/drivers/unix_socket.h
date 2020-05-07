@@ -32,9 +32,11 @@
 #define BESS_DRIVERS_UNIXSOCKET_H_
 
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <array>
 #include <atomic>
 #include <thread>
 
@@ -43,9 +45,10 @@
 
 #include "../utils/syscallthread.h"
 
-#define MAX_TOTAL_PACKET_SIZE 1024
+#define PACKET_HEADER_SIZE 23
 using bess::utils::Ethernet;
 using bess::utils::be64_t;
+
 class UnixSocketPort;
 
 // We promise to block only in ppoll(),
@@ -100,8 +103,19 @@ class UnixSocketPort final : public Port {
   int SendPackets(queue_t qid, bess::Packet **pkts, int cnt) override;
 
  private:
+  void ReplenishRecvVector(int cnt);
+
   unsigned int h_size_;
-  uint8_t templ_[MAX_TOTAL_PACKET_SIZE];
+  uint8_t templ_[PACKET_HEADER_SIZE];
+
+  // These rely on there being no multiqueue support !!!
+  std::array<bess::Packet *, bess::PacketBatch::kMaxBurst> pkt_recv_vector_;
+  std::array<mmsghdr, bess::PacketBatch::kMaxBurst> recv_vector_;
+  std::array<iovec, bess::PacketBatch::kMaxBurst> recv_iovecs_;
+  // send_iovecs reserves *8 elements for segmented packets
+  std::array<mmsghdr, bess::PacketBatch::kMaxBurst> send_vector_;
+  std::array<iovec, bess::PacketBatch::kMaxBurst * 8> send_iovecs_;
+
   // Value for a disconnected socket.
   static const int kNotConnectedFd = -1;
   friend class UnixSocketAcceptThread;
