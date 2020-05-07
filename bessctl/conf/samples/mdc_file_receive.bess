@@ -1,0 +1,115 @@
+# Copyright (c) 2014-2017, The Regents of the University of California.
+# Copyright (c) 2016-2017, Nefeli Networks, Inc.
+# All rights reserved.
+#
+# Description: Full mDC agent including file_reader, file_writer and mdc_agent for making an
+#  autonomous agent.
+
+
+import mdcpkts
+
+# Agent IDs we use 
+# port1: 4
+# port2: 16
+# port3: 64
+SPARK_RAMDISK_PATH = "/mnt/ramdisk/"
+SPARK_SOCKET_PATH = "/home/pyassini/domain_socket_file"
+AGENT_ID = 4
+AGENT_LABEL = 0x04
+AGENT_NIC = '0000:7e:00.0'
+SWITCH_MAC = '06:a6:7e:72:37:92'
+AGENT_MAC = '06:9f:da:98:a4:76'
+#AGENT_MAC = '02:53:55:4d:45:01'
+num_cores = 4
+#int($MDC_CORES!'8')
+#enable_spark = int($MDC_ENABLE_SPARK!False)
+enable_spark = 1
+# SWITCH_IP = '172.31.17.223'
+# AGENT_IP = '172.31.26.147'
+print("This is the full MDC agent script")
+
+if enable_spark:
+    # Modules for communication with Spark
+    
+    
+    # TODO @parham: Check this line, template should be hdr or complete packet?
+    unlabeled_data_header = mdcpkts.mdc_unlabeled_data_hdr(label=0x50505001)
+    file_reader_template = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x50505001, pkt_len=0, src_mac='06:16:3e:1b:72:32', dst_mac='02:53:55:4d:45:02') 
+    stream_socket = UnixSocketPort(name='stream_socket', path=SPARK_SOCKET_PATH, template=bytes(file_reader_template))
+    #print("File reader template len: " + str(len(file_reader_template)))
+    #file_reader::SignalFileReader(template=bytes(file_reader_template))
+    #file_writer::FileWriter(write_path=SPARK_RAMDISK_PATH, hdr_len=len(file_reader_template))
+    #spark_interface::SparkInterface(spark_gate=0, file_gate=1, hdr_len=len(file_reader_template))
+
+
+# assert 64 <= data_pkt_size <= 1024, 'Data pkts needs to be in the range [64, 1024] in bytes'
+
+print('Core count = %d' % num_cores)
+print('Spark enabled = %s' % enable_spark)
+
+ping_pkt = mdcpkts.make_mdc_ping_pkt(agent=AGENT_ID,
+                                     src_mac='F8:F2:1E:3C:0E:84',
+                                     dst_mac='02:53:55:4d:45:01')
+ping_pkt_bytes = bytes(ping_pkt)
+
+mdc_receiver = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC)
+
+# Adds (session address, label) tuples to the MdcReceiver module
+mdc_receiver.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505054}])
+mdc_receiver.add(entries=[{'addr': '02:53:55:4d:45:02', 'label': 0x50505001}])
+ 
+# If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
+# TODO: this needs to depend on the CPU layout and where the NIC is.
+start_core = 0
+for i in range(num_cores):
+    bess.add_worker(wid=i, core=i + start_core)
+
+# Define Ports and Queues
+port0::PMDPort(port_id=0, num_inc_q=4, num_out_q=1)
+
+port0_inc0::QueueInc(port=port0, qid=0, prefetch=1)
+port0_out0::QueueOut(port=port0, qid=0)
+
+# Creates mDC modules: a receiver, a control pkt generator and Health check
+
+#mdc_pkt_gen = MdcPktGen(template=ping_pkt_bytes, pps=1e2)
+#q1 = Queue()
+#q2 = Queue()
+#bess.add_tc('fast', policy='rate_limit', resource='packet', limit={'packet': 9000000000})
+
+#if enable_spark:
+    # Interfacing with spark
+    #port0_inc0 -> Queue(size=16384, prefetch=1) -> 1:mdc_receiver:1 -> PortOut(port='stream_socket')
+    #spark_interface:1 -> file_reader -> 0:mdc_receiver
+
+# packets from the incoming port on ext_gate, are sent to mdc_receiver
+port0_inc0 -> Queue(size=16384) -> 1:mdc_receiver:1 -> Queue(size=16384) -> PortOut(port='stream_socket')
+#port0_inc0.attach_task(wid=0)
+#port0_inc0.attach_task(wid=1)
+#port0_inc0.attach_task(wid=2)
+#port0_out0.attach_task(wid=3)
+#port0_inc0 -> 1:mdc_receiver:1 -> PortOut(port='stream_socket')
+PortInc(port='stream_socket') ->  Queue(size=16384) -> 0:mdc_receiver:0 -> Queue(size=16384) -> port0_out0
+#pi.attach_task(wid=1)
+#PortInc(port='stream_socket') -> 0:mdc_receiver:0 -> port0_out0
+#port0_inc0 -> Queue(size=16384, prefetch=1) -> 1:mdc_receiver:1 -> Queue(size=16384, prefetch=1) -> file_writer -> 1:spark_interface
+# Processed pkts: unlabeled pkts and update-state ctrl pkts (port0_out0 is TOR output from mdc_receiver)
+#mdc_receiver:0 -> port0_out0
+
+#if enable_spark:
+    # If the Agent host has a receiver, sends these pkts to file writer
+    # TODO @parham File reader needs to be connected to 1:mdc_receiver
+    # mdc_receiver:1 -> file_writer -> 1:spark_interface
+#else:
+   # mdc_receiver:1 -> Queue() -> AwsMdcThroughput() -> Sink()
+
+# Health check pkts
+#q::Queue()
+#mdc_pkt_gen -> q -> 2:mdc_receiver
+#q.attach_task(wid=num_cores-1)
+#mdc_pkt_gen.attach_task(wid=num_cores-1)
+
+
