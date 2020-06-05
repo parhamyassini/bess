@@ -6,17 +6,19 @@ import pickle
 import shutil
 from multiprocessing import Process, Queue, Value, Array
 
-server_ip = "192.168.1.1" #ramses IP
-host_ip = ""
+RESULTS_BASE_DIR = '/var/run/sockets/results/'
+
+server_ip = "" #ramses IP
+host_ip = "" #Receiver host IP
 multicast_group = '224.1.1.1'
 server_address = ('', 9001)
 NUM_RECEIVER_THREADS = 1
 ACCEPTABLE_PORTION = 1
 UDP_BUFFER_LEN = 65507
 UNIX_SOCK_BUFFER_LEN = 85000
+UNIX_SOCK_BASE_DIR = '/var/run/sockets/'
 
 port = 9001
-file_contents = ["0", "1", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "2", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "3", "u", "v", "w", "x", "4", "5", "6", "7", "8", "9"]
 unix_socket_addr = '../domain_socket_file'
 files = []
 total_written_bytes = []
@@ -25,9 +27,17 @@ total_time = 0
 def init(method):
     global files
     global total_written_bytes
+    global server_ip
     with open(broadcast_name, "rb") as reader:
         files = pickle.load(reader)
-    
+    try:
+        unix_socket_addr = UNIX_SOCK_BASE_DIR + os.getenv('CONTAINER_NAME', None)
+    except:
+        print("Warning: No container name set using Unix socket address for physical host")
+        unix_socket_addr = '../domain_socket_file'
+    server_ip = host_ip[:10] + '1' #Ramses has 192.168.1.1 or 192.168.0.1 depending on Rack subnet
+    #print(host_ip)
+    #print (server_ip)
     sock_array = []
     print("Config Host IP: " + host_ip)
     if method == "udp":
@@ -190,20 +200,20 @@ if __name__ == '__main__':
     total_anticipated = 0
     p_list = []
 
-    if len(sys.argv) < 3:
-        print("Run with the following arguments: <send method> <list file name>")
+    if len(sys.argv) < 4:
+        print("Run with the following arguments: <expid> <send method> <list file name> <total run number>")
         exit(1)
-    broadcast_name = sys.argv[2]
-    _method = sys.argv[1]
-    if _method == "orca":
-        run_num = int(sys.argv[3])
-    if _method != "orca":
-        if len(sys.argv) < 4:
-            print("Host IP should be passed as argument when using udp")
-            print("Run with the following arguments: <send method> <list file name> <Host IP>")
-            exit(1)
-        host_ip = sys.argv[3]
-        run_num = int(sys.argv[4])
+    _exp_id = sys.argv[1]
+    broadcast_name = sys.argv[3]
+    _method = sys.argv[2]
+    run_num = int(sys.argv[4])
+    
+    try:
+        host_ip = os.getenv('IP_ADDR', None)
+    except:
+        print("ERROR: IP_ADDR variable not set")
+        exit(1)
+
     os.system("taskset -p 0xff %d" % os.getpid())
 
     for run_idx in range (run_num):
@@ -243,10 +253,14 @@ if __name__ == '__main__':
         for k in range(len(finish_times)):
             if k > 0:
                 avg_wait_times[k] += (finish_times[k] - finish_times[k-1])
+    
     for i in range(len(files)):
         avg_wait_times[i] = avg_wait_times[i] / run_num
     avg_total_time = avg_total_time / run_num
-    with open("out_" + _method + "_" + broadcast_name[:-4] + ".csv", 'wb') as file:
+    
+    results_path = RESULTS_BASE_DIR + os.getenv('CONTAINER_NAME', None)
+    
+    with open(results_path + "/out_" + _method + "_" + _exp_id + "_" + broadcast_name[:-4] + ".csv", 'wb') as file:
         fieldnames = ['name', 'wait_time']
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
@@ -262,3 +276,4 @@ if __name__ == '__main__':
                 })
                 #print(files[i][0] + ": " + str(finish_times[i] - finish_times[i-1]))
     sys.exit(0)
+

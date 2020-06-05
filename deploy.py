@@ -10,6 +10,11 @@ DPDK_PATH_62 = '/local-scratch/bess/bin/dpdk-devbind.py'
 DPDK_PATH_42 = '/local-scratch/bess/bin/dpdk-devbind.py'
 DPDK_PATH_RAMSES = '/local-scratch/pyassini/bess/bin/dpdk-devbind.py'
 
+DOCKER_PATH_55 = '/home/pyassini/docker'
+DOCKER_PATH_56 = '/home/pyassini/docker'
+DOCKER_PATH_62 = '/local-scratch/docker'
+DOCKER_PATH_42 = '/local-scratch/docker'
+
 IFACE_RAMSES_RACK_1 = 'ens6f0'
 IFACE_RAMSES_RACK_2 = 'ens6f1'
 IFACE_42 = 'enp1s0f0'
@@ -22,6 +27,13 @@ DEV_42 = '0000:01:00'
 DEV_62 = '0000:02:00'
 DEV_55 = '0000:01:00'
 DEV_56 = '0000:01:00'
+
+IP_BASE_42 = '192.168.0.33'
+IP_BASE_62 = '192.168.0.65'
+IP_BASE_55 = '192.168.1.33'
+IP_BASE_56 = '192.168.1.65'
+
+CONTAINER_NAME_BASE = 'container_'
 
 def firewall_allow_iface(connection, iface_name):
     connection.sudo('iptables -I INPUT 1 -i ' + iface_name + ' -p all -j ACCEPT')
@@ -55,7 +67,6 @@ def switch_to_multicast(host_list):
             iface_down(host['connection'], host['iface_name_2'])
         nic_bind_uio(host['connection'], host['dpdk_path'], host['device_name'])
         
-
 def switch_to_unicast(host_list):
     for host in host_list:
         nic_unbind(host['connection'], host['dpdk_path'], host['device_name'])
@@ -65,7 +76,43 @@ def switch_to_unicast(host_list):
         if 'iface_name_2' in host:
             iface_up(host['connection'], host['iface_name_2'])
             firewall_allow_iface(host['connection'], host['iface_name_2'])
-            
+
+def setup_containers(host_list, num_containers):
+    for host in host_list:
+        if host['device_name'] == DEV_RAMSES:
+            continue
+        connection = host['connection']
+        for i in range(num_containers):
+            local_address = int(host['ip_base'][10:]) + i
+            container_ip = host['ip_base'][:10] + str(local_address)
+            container_name = CONTAINER_NAME_BASE + str(i)
+            print(container_name + ', ip: ' + container_ip)
+            connection.sudo(
+                'docker run -d --name ' + container_name 
+                + ' --net=pub_net --ip=' + container_ip 
+                + ' --env CONTAINER_NAME=' + container_name 
+                +' --env IP_ADDR=' + container_ip +
+                ' -v /var/run/sockets:/var/run/sockets receiver tail -f /dev/null')
+
+def remove_containers(host_list, num_containers):
+    for host in host_list:
+        if host['device_name'] == DEV_RAMSES:
+            continue
+        connection = host['connection']
+        for i in range(num_containers):
+            container_name = CONTAINER_NAME_BASE + str(i)
+            connection.sudo('docker container stop ' + container_name)
+            connection.sudo('docker container rm ' + container_name)
+
+def build_images(host_list):
+    for host in host_list:
+        if host['device_name'] == DEV_RAMSES:
+            continue
+        connection = host['connection']
+        connection.sudo('docker image rm receiver')
+        connection.run('cd ' + host['docker_path'])
+        connection.sudo('docker build -t receiver .')
+
 if __name__ == '__main__':
     print("Deployment Script")
     if len(sys.argv) < 3:
@@ -73,8 +120,14 @@ if __name__ == '__main__':
         exit(1)
     _username = sys.argv[1]    
     _goal = sys.argv[2]
+    _num_containers = 0
+    if _goal == "setup_containers" or _goal == "remove_containers":
+        try:
+            _num_containers = int(sys.argv[3])
+        except:
+            print("Run with the following arguments: <username> <setup/remove_containers> <number of containers>")
     host_list = []
-
+    
     sudo_pass = getpass.getpass("What's your sudo password?")
     config = Config(overrides={'sudo': {'password': sudo_pass}})
     print ("Connecting to ramses")
@@ -96,29 +149,47 @@ if __name__ == '__main__':
     })
     host_list.append({'connection': nsl_42,
     'dpdk_path': DPDK_PATH_42,
+    'docker_path': DOCKER_PATH_42,
     'iface_name_1':IFACE_42,
-    'device_name':DEV_42
+    'device_name':DEV_42,
+    'ip_base': IP_BASE_42
     })
     host_list.append({'connection': nsl_62,
     'dpdk_path': DPDK_PATH_62,
+    'docker_path': DOCKER_PATH_62,
     'iface_name_1':IFACE_62,
-    'device_name':DEV_62
+    'device_name':DEV_62,
+    'ip_base': IP_BASE_62
     })
     host_list.append({'connection': nsl_55,
     'dpdk_path': DPDK_PATH_55,
+    'docker_path': DOCKER_PATH_55,
     'iface_name_1':IFACE_55,
-    'device_name':DEV_55
+    'device_name':DEV_55,
+    'ip_base': IP_BASE_55
     })
     host_list.append({'connection': nsl_56,
     'dpdk_path': DPDK_PATH_56,
+    'docker_path': DOCKER_PATH_56,
     'iface_name_1':IFACE_56,
-    'device_name':DEV_56
+    'device_name':DEV_56,
+    'ip_base': IP_BASE_56
     })
+    print (_goal)
     if (_goal == 'multicast'):
         switch_to_multicast(host_list)
         print("\nSuccesfully done multicast configuration")
     elif (_goal == 'unicast'):
         switch_to_unicast(host_list)
         print("\nSuccesfully done unicast configuration")
-
+    elif (_goal == 'setup_containers'):
+        setup_containers(host_list, _num_containers)
+        print ("\nSuccesfully setup containers")
+    elif (_goal == 'remove_containers'):
+        print("REMOVING")
+        remove_containers(host_list, _num_containers)
+        print ("\nSuccesfully removed all containers")
+    elif (_goal == 'build_images'):
+        build_images(host_list)
+        print ("\nSuccesfully built images")
 

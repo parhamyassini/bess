@@ -10,33 +10,39 @@ import random
 import string
 from multiprocessing import Process, Queue, Value, Array
 
+RESULTS_BASE_DIR = '../results/ramses/'
+
 unix_socket_addr = '../domain_socket_file'
-basedir = 'broadcast_files_3'
+basedir = 'broadcast_files_1'
 
 UDP_BUF_LEN = 65507
 LOSS_TOLERANCE = 0.00
-SEND_THREADS = 4
-#dummy_len = int(UDP_BUF_LEN*LOSS_TOLERANCE)
-names = os.listdir(basedir)
-paths = [os.path.join(basedir, name) for name in names]
-files = [(path, os.stat(path).st_size) for path in paths]
-files.sort()
+num_send_procs = 4
+IP_BASE_RACK_0 = "192.168.0."
+IP_BASE_RACK_1 = "192.168.1."
+files = []
 
-server_ip_net_0 = "192.168.0.1" #Ramses IP on port0
-server_ip_net_1 = "192.168.1.1" #Ramses IP on port1
-hosts = ["192.168.0.4", "192.168.0.3", "192.168.1.2", "192.168.1.3"]
+server_ip_net_0 = IP_BASE_RACK_0 + '1' #Ramses IP on port0
+server_ip_net_1 = IP_BASE_RACK_1 + '1' #Ramses IP on port1
+
+
+# Host IPs the 192.168.X.0/24 IP domain is divided to 8 subranges (max 32 containers in each subrange)
+
+hosts = ["192.168.1.33", "192.168.1.34", "192.168.1.65", "192.168.1.66", \
+        "192.168.0.33", "192.168.0.34", "192.168.0.65", "192.168.0.66"]
+
+#hosts = ["192.158.0.4", "192.168.0.3", "192.168.1.2", "192.168.1.56"]
 #hosts = ["142.58.22.215", "142.58.22.223"]
 multicast_group = ('224.1.1.1', 9001)
 
-host_per_thread = int(len(hosts)/SEND_THREADS)
+host_per_thread = 0
 ack_times = []
 total_time = 0
 port = 9001
-client_count = 2
 p_list = []
 
 def send_thread(p_id, file_name, file_len, hosts, socks):
-    print ('p_id: ' + str(p_id))
+    #print ('p_id: ' + str(p_id))
     # retrans_len = int(file_len * LOSS_TOLERANCE)
     # sent_retrans_bytes = 0
     offset = p_id * host_per_thread
@@ -54,15 +60,15 @@ def send_thread(p_id, file_name, file_len, hosts, socks):
     #     sock.sendto(retrans_data, (host, port))
     #     sent_retrans_bytes += data_len
 
-    print("File Sent " + str(p_id))
+    #print("File Sent " + str(p_id))
 
 def receive_thread(i, recv_sock, method):
     ack_count = 0
-    #return
+#    return
     if method == "udp" or method == "multicast":
         data, addr = recv_sock.recvfrom(UDP_BUF_LEN)
     elif method == "orca":
-        data = recv_sock.recv(900)
+        data = recv_sock.recv(UDP_BUF_LEN)
     while data:
         print("Received : "+ str(data))
         acks_in_data = data.count("ack_" + str(i))
@@ -83,6 +89,13 @@ def receive_thread(i, recv_sock, method):
 
 def init(method):
     global ack_times
+    global files
+    global host_per_thread
+    names = os.listdir(basedir)
+    paths = [os.path.join(basedir, name) for name in names]
+    files = [(path, os.stat(path).st_size) for path in paths]
+    files.sort()
+    host_per_thread = int(len(hosts)/num_send_procs)
     socks = []
     ack_times = [0] * len(files)
     tot = 0
@@ -128,14 +141,20 @@ def init(method):
         exit(1)
 
 def send_orca(file_name, file_len, sock):
+    start_send = time.time()
     with open(file_name) as reader:
-        data = reader.read()
-        #sock.sendall(data)
-        sent = 0
-        while (sent < len(data)):
-            sock.send(data[sent:sent+15000])
-            sent += 15000
-    print("File Sent")
+        #data = reader.read()
+#        sock.sendall(data)
+        data = reader.read(UDP_BUF_LEN)
+        while(data):
+            sock.send(data)
+            data = reader.read(UDP_BUF_LEN)
+      #  sent = 0
+      #  while (sent < len(data)):
+      #      crop_idx = min(sent+UDP_BUF_LEN, len(data))
+      #      sent += sock.send(data[sent:crop_idx])
+    duration_ms = 1000 * (time.time() - start_send)
+    print("File Sent in : %.2f ms" %round(duration_ms, 2))
 
 def send_multicast(file_name, sock):
     with open(file_name) as reader:
@@ -158,7 +177,7 @@ def send_files(socks, recv_sock_net_0, recv_sock_net_1, method):
             receive_proc_net_1.start()
         start_send = time.time()
         if method == 'udp':
-            for i in range(SEND_THREADS):
+            for i in range(num_send_procs):
                 p = Process(target=send_thread, args=(i, file_name, file_len, hosts, socks, ))
                 p_list.append(p)
                 p.start()
@@ -171,22 +190,29 @@ def send_files(socks, recv_sock_net_0, recv_sock_net_1, method):
             send_multicast(file_name, sock)
         for process in p_list:
                 process.join()
+#        time.sleep(3)
         ack_times[j] = time.time() - start_send
 
 if __name__ == '__main__':
     print("File Transfer [Sender]")
-    if len(sys.argv) < 2:
-        print("Run with the following arguments: <send method>")
+    if len(sys.argv) < 5:
+        print("Run with the following arguments: <send method> <workload directory> <total run times> <num send processes>")
         exit(1)
     _method = sys.argv[1]
-    _run_num = int(sys.argv[2])
+    basedir = sys.argv[2]
+    _run_num = int(sys.argv[3])
+    num_send_procs = int(sys.argv[4])
     print("Config Send Method: " + _method)
+    os.system("taskset -p 0xff %d" % os.getpid())
+    result_file = RESULTS_BASE_DIR + "out_" + _method + "_n" + str(len(hosts)) + "m" + str(num_send_procs) + "_" + basedir + ".csv"
+    print ("Results in: " + result_file)
     avg_total_time = 0
     for run_idx in range(_run_num):
         total_time = 0
         start_time = time.time()
         if run_idx == 0:
             socks, recv_sock_net_0, recv_sock_net_1 = init(method=_method)
+            #print (files)
             avg_ack_times = [0] * len(files)
         send_files(socks, recv_sock_net_0, recv_sock_net_1, _method)
         total_time = time.time() - start_time
@@ -195,7 +221,7 @@ if __name__ == '__main__':
         for j in range(len(files)):
             avg_ack_times[j] += ack_times[j] / _run_num
         time.sleep(7)
-    with open("out_" + _method + "_t" + str(SEND_THREADS) + "_" + basedir + ".csv", 'wb') as file:
+    with open(result_file, 'wb') as file:
         fieldnames = ['name', 'time']
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
