@@ -34,6 +34,7 @@
 
 #include <cerrno>
 #include <cstring>
+#include <iostream>
 
 #include "unix_socket.h"
 
@@ -96,34 +97,7 @@ void UnixSocketAcceptThread::Run() {
   }
 }
 
-void UnixSocketPort::ReplenishRecvVector(int cnt) {
-  DCHECK_LE(cnt, bess::PacketBatch::kMaxBurst);
-  bool allocated =
-      current_worker.packet_pool()->AllocBulk(pkt_recv_vector_.data(), cnt);
-
-  for (int i = 0; i < cnt; i++) {
-    if (allocated) {
-      bess::utils::Copy(pkt_recv_vector_[i]->data(), templ_, h_size_);
-      recv_iovecs_[i] = {.iov_base = pkt_recv_vector_[i]->data() + h_size_,
-                         .iov_len = 900};
-    } else {
-      // vectors can have holes, it will just drop the packet
-      recv_iovecs_[i] = {.iov_base = nullptr, .iov_len = 0};
-    }
-  }
-}
-
 CommandResponse UnixSocketPort::Init(const bess::pb::UnixSocketPortArg &arg) {
-  LOG(INFO) << "This is the Orca socket module init";
-  LOG(INFO) << "Configured template size: " << arg.template_().length();
-  h_size_ = arg.template_().length();
-  if(h_size_ > PACKET_HEADER_SIZE){
-        LOG(INFO) << "Packet header too larg";
-        return CommandFailure(EINVAL, "Template too large");
-  }
-  bess::utils::Copy(templ_, (const char*)arg.template_().c_str(), h_size_);
-  LOG(INFO) << "Got template of: \"" << std::hex << templ_ << "\"";
-
   const std::string path = arg.path();
   int num_txq = num_queues[PACKET_DIR_OUT];
   int num_rxq = num_queues[PACKET_DIR_INC];
@@ -142,7 +116,7 @@ CommandResponse UnixSocketPort::Init(const bess::pb::UnixSocketPortArg &arg) {
 
   confirm_connect_ = arg.confirm_connect();
 
-  listen_fd_ = socket(AF_UNIX, SOCK_STREAM, 0);
+  listen_fd_ = socket(AF_UNIX, SOCK_SEQPACKET, 0);
   if (listen_fd_ < 0) {
     DeInit();
     return CommandFailure(errno, "socket(AF_UNIX) failed");
@@ -185,21 +159,6 @@ CommandResponse UnixSocketPort::Init(const bess::pb::UnixSocketPortArg &arg) {
     return CommandFailure(errno, "unable to start accept thread");
   }
 
-  for (size_t i = 0; i < bess::PacketBatch::kMaxBurst; i++) {
-    recv_vector_[i] = {.msg_hdr = {.msg_name = nullptr,
-                                   .msg_namelen = 0,
-                                   .msg_iov = &recv_iovecs_[i],
-                                   .msg_iovlen = 1,
-                                   .msg_control = nullptr,
-                                   .msg_controllen = 0,
-                                   .msg_flags = 0},
-                       .msg_len = 0};
-  }
-
-  recv_iovecs_.fill({.iov_base = nullptr, .iov_len = 0});
-  pkt_recv_vector_.fill(nullptr);
-  ReplenishRecvVector(bess::PacketBatch::kMaxBurst);
-
   return CommandSuccess();
 }
 
@@ -212,10 +171,6 @@ void UnixSocketPort::DeInit() {
   }
   if (client_fd_ != kNotConnectedFd) {
     close(client_fd_);
-  }
-
-  for (auto *pkt : pkt_recv_vector_) {
-    bess::Packet::Free(pkt);
   }
 }
 
@@ -235,23 +190,36 @@ int UnixSocketPort::RecvPackets(queue_t qid, bess::Packet **pkts, int cnt) {
   }
 
   int received = 0;
-
   while (received < cnt) {
-    int ret =
-        recvmmsg(client_fd, recv_vector_.data(), cnt - received, 0, nullptr);
+    bess::Packet *pkt = current_worker.packet_pool()->Alloc();
 
-    if (ret > 0) {
-      for (int i = 0; i < ret; i++) {
-        if ((recv_iovecs_[i].iov_base != nullptr) &&
-            (recv_vector_[i].msg_len > 0)) {
-          pkt_recv_vector_[i]->append(recv_vector_[i].msg_len);
-          pkts[received++] = pkt_recv_vector_[i];
-        }
-      }
-      ReplenishRecvVector(ret);
-    } else {
+    if (!pkt) {
       break;
     }
+
+    // Datagrams larger than 2KB will be truncated.
+    int ret = recv(client_fd, pkt->data(), SNBUF_DATA, 0);
+    //LOG(INFO) << "Unix recv pkt: " << pkt->data();
+    if (ret > 0) {
+      pkt->append(ret);
+      pkts[received++] = pkt;
+      continue;
+    }
+
+    bess::Packet::Free(pkt);
+
+    if (ret < 0) {
+      if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EBADF) {
+        break;
+      }
+
+      if (errno == EINTR) {
+        continue;
+      }
+    }
+
+    // Connection closed.
+    break;
   }
 
   last_idle_ns_ = (received == 0) ? now_ns : 0;
@@ -260,9 +228,9 @@ int UnixSocketPort::RecvPackets(queue_t qid, bess::Packet **pkts, int cnt) {
 }
 
 int UnixSocketPort::SendPackets(queue_t qid, bess::Packet **pkts, int cnt) {
-  int i;
   int sent = 0;
   int client_fd = client_fd_;
+  // LOG(INFO) << "Unix SendPackets, cnd: " << cnt << " fd: " << client_fd;
 
   DCHECK_EQ(qid, 0);
 
@@ -270,39 +238,35 @@ int UnixSocketPort::SendPackets(queue_t qid, bess::Packet **pkts, int cnt) {
     return 0;
   }
 
-  size_t iovec_idx = 0;
-  for (i = 0; i < cnt; i++) {
+  for (int i = 0; i < cnt; i++) {
     bess::Packet *pkt = pkts[i];
+
     int nb_segs = pkt->nb_segs();
+    struct iovec iov[nb_segs];
+
+    struct msghdr msg = msghdr();
+    msg.msg_iov = iov;
+    msg.msg_iovlen = nb_segs;
+
+    ssize_t ret;
 
     for (int j = 0; j < nb_segs; j++) {
-      if (iovec_idx >= send_iovecs_.size()) {
-        break;
-      }
-      send_iovecs_[iovec_idx++] = {
-          .iov_base = pkt->head_data(),
-          .iov_len = static_cast<size_t>(pkt->head_len())};
-      pkt = pkt->next();
+      iov[j].iov_base = pkt->head_data();
+      iov[j].iov_len = pkt->head_len();
+      pkt = pkt->next();      
     }
 
-    send_vector_[i] = {
-        .msg_hdr = {.msg_name = nullptr,
-                    .msg_namelen = 0,
-                    .msg_iov = &send_iovecs_[iovec_idx - nb_segs],
-                    .msg_iovlen = static_cast<size_t>(nb_segs),
-                    .msg_control = nullptr,
-                    .msg_controllen = 0,
-                    .msg_flags = 0},
-        .msg_len = 0};
+    // LOG(INFO) << "Unix send pkts: " << (char*)iov[0].iov_base;//This is the one that's useful for debugging
+    ret = sendmsg(client_fd, &msg, 0);
+    if (ret < 0) {
+      break;
+    }
+
+    sent++;
   }
 
-  if (!send_vector_.empty()) {
-    sent = sendmmsg(client_fd, send_vector_.data(), i, 0);
-    if (sent > 0) {
-      bess::Packet::Free(pkts, sent);
-    } else {
-      sent = 0;
-    }
+  if (sent) {
+    bess::Packet::Free(pkts, sent);
   }
 
   return sent;
