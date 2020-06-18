@@ -82,6 +82,7 @@ typedef uint64_t mac_addr_t;
 typedef uint32_t mdc_label_t;
 typedef uint8_t mdc_mode_t;
 
+
 enum MDCPacketType {
   MDC_TYPE_UNLABELED = 0x01,
   MDC_TYPE_LABELED = 0x02,
@@ -133,17 +134,22 @@ public:
 
   CommandResponse CommandAdd(const sample::mdc_receiver::pb::MdcReceiverCommandAddArg &arg);
   CommandResponse CommandClear(const bess::pb::EmptyArg &arg);
+  //CommandResponse CommandSetActiveAgent(const sample::mdc_receiver::pb::MdcReceiverCommandSetActiveAgentArg &arg);
+  CommandResponse CommandGetLatency(const sample::mdc_receiver::pb::MdcReceiverCommandGetLatencyArg &arg);
 
 private:
-  /* TODO @parham: agent id should be 8 bits? remove agent_label? */
   uint32_t agent_id_;
   uint32_t agent_label_;
-  
+  uint64_t total_time_ = 0;
+  //bool is_active_agent_ = 0;
   struct mdc_table mdc_table_;
 
   Ethernet::Address switch_mac_;
   Ethernet::Address agent_mac_;
 
+  uint64_t total_frwrd_app_pkts = 0;
+  uint64_t total_rec_pkts = 0;
+  uint64_t total_tor_pkt = 0;
   bool ip_encap_;
   bool emit_ping_pkt_;
   uint64_t gen_ping_pkts_count_;
@@ -151,11 +157,11 @@ private:
   bool p_latency_enabled_;
   uint64_t p_latency_first_pkt_rec_ns_;
   Histogram<uint64_t> p_latency_rtt_hist_;
-  int total_pkt_debug = 0;
+  
   /* These are the functions that actually do the processing after dividing packets */
   void DoProcessAppBatch(Context *ctx, bess::PacketBatch *batch);
   void DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch);
-  void LabelAndSendPacket(Context *ctx, bess::Packet *pkt);
+  void LabelAndSendPacket(Context *ctx, bess::Packet *pkt, bool is_external);
 };
 
 #endif // BESS_MODULES_LABELLOOKUP_H_

@@ -70,5 +70,21 @@ message MdcReceiverArg {
   bool ip_encap = 5;
 }
 
+/**
+ * For reading the total time spent inside the module from the bess script
+ * If clear is True, after each call the timer will reset otherwise it returns the cumulative processing time of module
+ */
+message MdcReceiverCommandGetLatencyArg{
+  bool clear = 1;
+}
 
+message MdcReceiverCommandGetLatencyResponse {
+  uint64 total_time = 1;
+}
 
+/**
+  * Currently not using this API
+message MdcReceiverCommandSetActiveAgentArg{
+  bool is_active_agent = 1;
+}
+*/
