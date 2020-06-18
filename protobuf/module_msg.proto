@@ -1222,3 +1222,15 @@ message SparkInterfaceArg{
   uint32 file_gate  = 2; /// The gate number to send file trigger packets to
   int32 hdr_len = 3; ///Length of header, needed when parsing file writer messages (same as file writer header_len)
 }
+
+/**
+ * AppInterface
+ *
+ * __Input Gates__: 0
+ * __Output Gates__: 1
+ */
+message AppInterfaceArg{
+  bytes template = 1; /// The packet "template". All data packets are derived from this template and contain the 
+  string path = 2;
+}
+
