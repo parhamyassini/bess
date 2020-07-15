@@ -420,6 +420,8 @@ const Commands MdcReceiver::cmds = {
                                                                          Command::THREAD_UNSAFE},
         {"get_latency", "MdcReceiverCommandGetLatencyArg", MODULE_CMD_FUNC(&MdcReceiver::CommandGetLatency),
                                                                          Command::THREAD_SAFE},
+        {"get_cycle", "MdcReceiverCommandGetCycleArg", MODULE_CMD_FUNC(&MdcReceiver::CommandGetCycle),
+                                                                         Command::THREAD_SAFE}
 };
 
 CommandResponse
@@ -463,12 +465,33 @@ void MdcReceiver::DeInit() {
     mdc_deinit(&mdc_table_);
 }
 
+/**
+ * Returns the total time (in ns) spent for our lable and send algorithm. 
+ * Param: clear (bool), if this param is set, it will clear the counter after the call and else the number will be acummulated
+ */
 CommandResponse MdcReceiver::CommandGetLatency(const sample::mdc_receiver::pb::MdcReceiverCommandGetLatencyArg &arg) 
 {
     sample::mdc_receiver::pb::MdcReceiverCommandGetLatencyResponse r;
     r.set_total_time(total_time_);
+    r.set_packets(total_rec_pkts_);
     if(arg.clear() == 1) {
         total_time_ = 0;
+    }
+    return CommandSuccess(r);
+}
+
+/**
+ * Returns the total CPU cycles spent for our lable and send algorithm. 
+ * Param: clear (bool), if this param is set, it will clear the counter after the call and else the number will be acummulated
+ */
+CommandResponse MdcReceiver::CommandGetCycle(const sample::mdc_receiver::pb::MdcReceiverCommandGetCycleArg &arg) 
+{
+    sample::mdc_receiver::pb::MdcReceiverCommandGetCycleResponse r;
+    r.set_total_cycle(total_cycle_);
+    r.set_packets(total_rec_pkts_);
+    if(arg.clear() == 1) {
+        total_cycle_ = 0;
+        total_rec_pkts_ = 0;
     }
     return CommandSuccess(r);
 }
@@ -528,7 +551,8 @@ CommandResponse MdcReceiver::CommandClear(const bess::pb::EmptyArg &) {
 
 void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt, bool is_external){
     // This is the dst_mac address from Ethernet header.
-    uint64_t start_tsc = tsc_to_ns(rdtsc());
+    uint64_t start_ns = tsc_to_ns(rdtsc());
+    uint64_t start_tsc = rdtsc();
     mac_addr_t address = *(pkt->head_data<uint64_t *>()) & 0x0000ffffffffffff;
     mdc_label_t out_label = 0x50;
     int ret = -1;
@@ -581,15 +605,21 @@ void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt, bool is_ex
             *p1 = *p1 | be64_t(0x0200000000000000); 
         }
     } else {
-        // Set packet type as 0x02 (MDC_TYPE_LABELED)
-        *p1 = *p1 & be64_t(0xffffffff00ffffff); // clear type bits
-        *p1 = *p1 | be64_t(0x0000000002000000); // Set 0x02
-
+        /* 
+         Set Labled (0x02)  and unlabled (0x01) for pkts 
+        */
+        if(tor_label == 0x00){
+            *p1 = *p1 & be64_t(0xffffffff00ffffff); // clear type bits
+            *p1 = *p1 | be64_t(0x0000000001000000); // Set 0x01
+        } else {
+            *p1 = *p1 & be64_t(0xffffffff00ffffff); // clear type bits
+            *p1 = *p1 | be64_t(0x0000000002000000); // Set 0x02
+        }
         be64_t *p2 = p1 + 1;
         *p2 = *p2 | ((be64_t(out_label & ~agent_label_)) << 32);
     }
-    uint64_t end_tsc = tsc_to_ns(rdtsc()) - start_tsc;
-    
+    uint64_t end_tsc = rdtsc() - start_tsc;
+    uint64_t end_ns = tsc_to_ns(rdtsc()) - start_ns;
     //total_tor_pkt ++;
     // if(total_tor_pkt>=108295) {
     //     LOG(INFO) << "TEST PASS: To TOR pkt num correct";
@@ -600,17 +630,19 @@ void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt, bool is_ex
 
     EmitPacket(ctx, pkt, MDC_OUTPUT_TOR);
 
-    total_time_ += end_tsc;
+    total_time_ += end_ns;
+    total_cycle_ += end_tsc;
+    total_rec_pkts_ += 1;
 
     if (unlikely(!p_latency_first_pkt_rec_ns_)) {
-        p_latency_first_pkt_rec_ns_ = start_tsc;
+        p_latency_first_pkt_rec_ns_ = start_ns;
     }
 
     if (p_latency_enabled_) {
         // Pkt received
         p_latency_rtt_hist_.Insert(end_tsc);
         // a hack to collect results
-        if (p_latency_first_pkt_rec_ns_ && (start_tsc - p_latency_first_pkt_rec_ns_) >= 60'000'000'000) {
+        if (p_latency_first_pkt_rec_ns_ && (start_ns - p_latency_first_pkt_rec_ns_) >= 60'000'000'000) {
             p_latency_enabled_ = false;
             std::vector<double> latency_percentiles{50, 95, 99, 99.9, 99.99};
             const auto &rtt = p_latency_rtt_hist_.Summarize(latency_percentiles);

@@ -80,7 +80,19 @@ message MdcReceiverCommandGetLatencyArg{
 
 message MdcReceiverCommandGetLatencyResponse {
   uint64 total_time = 1;
+  uint64 packets = 2;
 }
+
+
+message MdcReceiverCommandGetCycleArg{
+  bool clear = 1;
+}
+
+message MdcReceiverCommandGetCycleResponse {
+  uint64 total_cycle = 1;
+  uint64 packets = 2;
+}
+
 
 /**
   * Currently not using this API

@@ -136,11 +136,13 @@ public:
   CommandResponse CommandClear(const bess::pb::EmptyArg &arg);
   //CommandResponse CommandSetActiveAgent(const sample::mdc_receiver::pb::MdcReceiverCommandSetActiveAgentArg &arg);
   CommandResponse CommandGetLatency(const sample::mdc_receiver::pb::MdcReceiverCommandGetLatencyArg &arg);
+  CommandResponse CommandGetCycle(const sample::mdc_receiver::pb::MdcReceiverCommandGetCycleArg &arg);
 
 private:
   uint32_t agent_id_;
   uint32_t agent_label_;
   uint64_t total_time_ = 0;
+  uint64_t total_cycle_ = 0;
   //bool is_active_agent_ = 0;
   struct mdc_table mdc_table_;
 
@@ -148,7 +150,7 @@ private:
   Ethernet::Address agent_mac_;
 
   uint64_t total_frwrd_app_pkts = 0;
-  uint64_t total_rec_pkts = 0;
+  uint64_t total_rec_pkts_ = 0;
   uint64_t total_tor_pkt = 0;
   bool ip_encap_;
   bool emit_ping_pkt_;
