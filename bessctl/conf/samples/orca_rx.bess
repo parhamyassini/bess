@@ -1,0 +1,115 @@
+# Copyright (c) 2014-2017, The Regents of the University of California.
+# Copyright (c) 2016-2017, Nefeli Networks, Inc.
+# All rights reserved.
+#
+# Description: Full mDC agent including file_reader, file_writer and mdc_agent for making an
+#  autonomous agent.
+
+
+import mdcpkts
+import os
+# Agent IDs we use 
+# port1: 4
+# port2: 16
+# port3: 64
+AGENT_ID = 4
+AGENT_LABEL = 0x04
+AGENT_NIC = '0000:7e:00.0'
+SWITCH_MAC = '06:a6:7e:72:37:92'
+AGENT_MAC = '06:9f:da:98:a4:76'
+total_packet_size = 800
+CONCURRENCY_PARAM = 3
+HOST_SOCKET_PATH = "../domain_socket_file"
+CONTAINER_SOCKET_BASE_PATH = "/var/run/sockets/"
+NUM_INSTANCES = 1
+CONTAINER_NAME_BASE = "container_"
+try:
+    NUM_INSTANCES = int(os.getenv('NUM_INSTANCES', None))
+except:
+    print("Error: variable NUM_INSTANCES not set")
+    exit(1)
+try:
+    CONTAINER_NAME_BASE = os.getenv('CONTAINER_NAME_BASE', "container_")
+except:
+    print("Error: variable CONTAINER_NAME_BASE not set")
+    exit(1)
+
+print("This is the full Orca agent with application interface")
+
+pkt_template = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x50505001, pkt_len=0, src_mac='06:16:3e:1b:72:32', dst_mac='02:53:55:4d:45:02') 
+
+
+# If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
+# TODO: this needs to depend on the CPU layout and where the NIC is.
+num_cores = CONCURRENCY_PARAM * 2 + 2
+start_core = 0
+print('Core count = %d' % num_cores)
+for i in range(num_cores):
+    bess.add_worker(wid=i, core=i + start_core)
+
+# Define Ports and Queues
+port0::PMDPort(port_id=0, num_inc_q=1, num_out_q=3, size_inc_q=4096, size_out_q=4096)
+port0_inc0::QueueInc(port=port0, qid=0, prefetch=1)
+
+port0_out_arr = []
+gates_arr = []
+orca_throughput_arr = []
+mdc_rec_arr = []
+for i in range(CONCURRENCY_PARAM):
+    port0_out = QueueOut(port=port0, qid=i)
+    port0_out_arr.append(port0_out)
+    gates_arr.append(i)
+
+port0_inc0 -> q::Queue(size=16384) -> rs::RandomSplit(drop_rate=0.0, gates=gates_arr)
+for i in range(CONCURRENCY_PARAM):
+    mdc_receiver = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC)
+    mdc_receiver.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505054}])
+    ot = OrcaThroughput()
+    rs:i -> Queue(size=16384) -> 1:mdc_receiver:1 -> ot -> Sink()
+    orca_throughput_arr.append(ot)
+    mdc_receiver:0 -> Queue(size=16384) -> port0_out_arr[i]
+    mdc_rec_arr.append(mdc_receiver)
+
+bess.resume_all()
+
+last_time = [0,0,0,0]
+last_bits = [0, 0, 0, 0]
+last_pkts = [0, 0, 0, 0]
+total_pps = 0
+total_bps = 0
+total_cycle = 0
+total_pkt = 0
+total_cycle_per_pkt = 0.0
+while True:
+    time.sleep(0.1)
+    diff_pkts = [0, 0, 0, 0]
+    diff_bits = [0, 0, 0, 0]
+    ret_arr = []
+    diff_ns = 0
+    # get_summary() doesn't require workers to be stopped
+    for i in range(CONCURRENCY_PARAM):
+        ret_t = orca_throughput_arr[i].get_latest(clear=False)
+        ret_arr.append(ret_t)
+        ret_mdc = mdc_rec_arr[i].get_cycle(clear=True)
+        total_pkt += ret_mdc.packets
+        total_cycle += ret_mdc.total_cycle
+    
+    if ret_arr[0].timestamp - last_time[0] >= 1e8: # Every 10 ms (1e7 ns)
+        for i in range(CONCURRENCY_PARAM):
+            diff_ns = ret_arr[i].timestamp - last_time[i]
+            diff_pkts[i] = ret_arr[i].packets - last_pkts[i]
+            diff_bits[i] = (ret_arr[i].bytes * 8.0) - last_bits[i]
+            last_pkts[i] = ret_arr[i].packets
+            last_bits[i] = (ret_arr[i].bytes * 8.0)
+            last_time[i] = ret_arr[i].timestamp
+            total_pps += 1e3 * (float(diff_pkts[i]) / diff_ns)
+            total_bps += 1e3 * (float(diff_bits[i]) / diff_ns)
+        print('%12.6f: %5.3f Mpps, %8.3f Mbps, ' % (diff_ns, total_pps, total_bps))
+        total_cycle_per_pkt = float(total_cycle) / total_pkt
+        print("CPU Cycles per Packet = " + str(total_cycle_per_pkt))
+        total_pps = 0
+        total_bps = 0
+
