@@ -2,8 +2,25 @@
 # Copyright (c) 2016-2017, Nefeli Networks, Inc.
 # All rights reserved.
 #
-# Description: Full mDC agent including file_reader, file_writer and mdc_agent for making an
-#  autonomous agent.
+# Description: Orca traffic generator used in the following experiments:
+#
+# - CPU cycle:
+# 	RANDOMIZED_SESSIONS=True. 
+#	NUM_SESSIONS: Number of active sessions (10K, 100K, ... 500K) used for session ID generation in packets
+#	SESSION_ID_BASE: Base of active session IDs to generate packets for. Same base address should be set in receivers.
+#	ip_encap=True (in make_mdc_unlabeled_data_pkt()): to enable RSS for 64-byte packets
+#	
+# - Controller Responsiveness (join delay): 
+# 	RANDOMIZED_SESSIONS=False.
+#	NUM_SESSIONSL=N/A.
+#	ip_encap=False. No need for small packet line-rate setting (can be true as well but we used no encapsulation)
+#	ORCA_TGEN_BURST_SIZE=4. Avoid additional latencies introduced by DPDK batch processing.
+#
+# - Any expriment that needs throughput measurement (up to 10 Gbps) on receiver side. Example: Rx Throughput, Failover...
+#	RANDOMIZED_SESSIONS=False. 
+#	NUM_SESSIONSL=N/A.
+# 	ip_encap=True.
+#	ORCA_TGEN_BURST_SIZE=32 (default burst).
 
 import mdcpkts
 import time
@@ -22,6 +39,11 @@ AGENT_MAC = '06:9f:da:98:a4:76'
 num_cores = 8
 total_packet_size = 0
 data_pkt_size = int($ORCA_DATA_PKT_SIZE!'1024')
+tgen_burst_size = int($ORCA_TGEN_BURST_SIZE!'32')
+
+RANDOMIZED_SESSIONS = False
+NUM_SESSIONS = 100000
+SESSION_ID_BASE = '02:53:00'
 
 print("This is the Orca agent tx script")
 
@@ -37,60 +59,23 @@ ip_list = [
 ('16.123.19.226', '10.199.212.27'), 
 ]
 
-pkt_template0 = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x50505000, pkt_len=data_pkt_size,\
-	src_mac='06:16:3e:1b:72:32', dst_mac='02:53:55:4d:45:01',\
+# ip_encap set to false for controller responsiveness experiment
+# ip_encap set to True in stress tests for 
+pkt_template = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x50505000, pkt_len=data_pkt_size,\
+	src_mac='06:16:3e:1b:72:32', dst_mac='02:53:00:00:00:00',\
 	src_ip=ip_list[0][0], dst_ip=ip_list[0][1],\
 	ip_encap=False)
 
-pkt_template1 = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x50505000, pkt_len=data_pkt_size,\
-	src_mac='06:16:3e:1b:72:32', dst_mac='02:53:55:4d:45:01',\
-	src_ip=ip_list[1][0], dst_ip=ip_list[1][1],\
-	ip_encap=False)
+# pkt_template = mdcpkts.make_mdc_sync_state_pkt(address=0x0253, label=0x50505002,\
+# 	src_mac='06:16:3e:1b:72:32', dst_mac='02:53:55:4d:45:01',\
+# 	ip_encap=False)
 
-pkt_template2 = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x50505000, pkt_len=data_pkt_size,\
-	src_mac='06:16:3e:1b:72:32', dst_mac='02:53:55:4d:45:01',\
-	src_ip=ip_list[2][0], dst_ip=ip_list[2][1],\
-	ip_encap=False)
-
-pkt_template3 = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x50505000, pkt_len=data_pkt_size,\
-	src_mac='06:16:3e:1b:72:32', dst_mac='02:53:55:4d:45:01',\
-	src_ip=ip_list[2][0], dst_ip=ip_list[3][1],\
-	ip_encap=False)
-print("Packet template len: " + str(len(pkt_template0)))
-total_packet_size =  len(pkt_template0)
+print("Packet template len: " + str(len(pkt_template)))
+total_packet_size =  len(pkt_template)
 
 print('Data size = %d' % data_pkt_size)
 print('Total pkt size = %d' % total_packet_size)
 print('Core count = %d' % num_cores)
-
-mdc_receiver0 = MdcReceiver(agent_id=AGENT_ID,
-                           agent_label=AGENT_LABEL,
-                           switch_mac=SWITCH_MAC,
-                           agent_mac=AGENT_MAC, 
-                           ip_encap=False)
-
-mdc_receiver1 = MdcReceiver(agent_id=AGENT_ID,
-                           agent_label=AGENT_LABEL,
-                           switch_mac=SWITCH_MAC,
-                           agent_mac=AGENT_MAC, 
-                           ip_encap=False)
-mdc_receiver2 = MdcReceiver(agent_id=AGENT_ID,
-                           agent_label=AGENT_LABEL,
-                           switch_mac=SWITCH_MAC,
-                           agent_mac=AGENT_MAC, 
-                           ip_encap=False)
-
-#mdc_receiver3 = MdcReceiver(agent_id=AGENT_ID,
-#                           agent_label=AGENT_LABEL,
-#                           switch_mac=SWITCH_MAC,
-#                           agent_mac=AGENT_MAC, 
-#                           ip_encap=False)
-
-# Adds (session address, label) tuples to the MdcReceiver module
-mdc_receiver0.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505000}])
-mdc_receiver1.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505000}])
-mdc_receiver2.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505000}])
-#mdc_receiver3.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505000}])
 
 # If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
 # TODO: this needs to depend on the CPU layout and where the NIC is.
@@ -113,28 +98,39 @@ port0_out2::QueueOut(port=port0, qid=2)
 # Traffic generator: this generates data pkts unlike the MdcPktGen that generate ctrl pkts
 # Recommended: Use when the NIC has at least 2 ports, and when you want to generate traffic using BESS
 # Data rate depends on the capacity (Gbps), and data_pkt_size and Ethernet framing overhead (bytes)
-tgen_pkt_rate = (7.41 * 1e9 / float(total_packet_size * 8)) / 3
+tgen_pkt_rate = (10 * 1e9 / float((total_packet_size + 24) * 8)) / 3
 bess.add_tc('tgen_0', policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)})
 bess.add_tc('tgen_1', policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)})
 bess.add_tc('tgen_2', policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)})
 # Creates a source, and limits its pkt rate
+pkt_template_list = []
 
 tgen_src_0::Source()
 tgen_src_0.attach_task('tgen_0')
+tgen_src_0.set_burst(burst=tgen_burst_size)
 tgen_src_1::Source() 
 tgen_src_1.attach_task('tgen_1')
+tgen_src_1.set_burst(burst=tgen_burst_size)
 tgen_src_2::Source()
 tgen_src_2.attach_task('tgen_2')
+tgen_src_2.set_burst(burst=tgen_burst_size)
+
 # Sends generated traffic on Port1
-tgen_src_0 -> Rewrite(templates=[bytes(pkt_template0)]) \
-	-> 0:mdc_receiver0:0 -> q_out0::Queue(backpressure=1) -> port0_out0
+if RANDOMIZED_SESSIONS:
+	tgen_src_0 -> Rewrite(templates=[bytes(pkt_template)]) \
+		->  q_out0::Queue(backpressure=1) -> RandomUpdate(fields=[{'offset': 2, 'size': 4, 'min': 0x000000, 'max': 0x000000 + NUM_SESSIONS - 1}]) \
+		-> port0_out0
 
-tgen_src_1 -> Rewrite(templates=[bytes(pkt_template1)]) \
-	-> 0:mdc_receiver1:0 -> q_out1::Queue(backpressure=1) -> port0_out1
+	tgen_src_1 -> Rewrite(templates=[bytes(pkt_template)]) \
+		-> q_out1::Queue(backpressure=1) -> RandomUpdate(fields=[{'offset': 2, 'size': 4, 'min': 0x000000, 'max': 0x000000 + NUM_SESSIONS - 1}]) -> port0_out1
 
-tgen_src_2 -> Rewrite(templates=[bytes(pkt_template2)]) \
-	-> 0:mdc_receiver2:0 -> q_out2::Queue(backpressure=1) -> port0_out2
-
+	tgen_src_2 -> Rewrite(templates=[bytes(pkt_template)]) \
+		-> q_out2::Queue(backpressure=1) -> RandomUpdate(fields=[{'offset': 2, 'size': 4, 'min': 0x000000, 'max': 0x000000 + NUM_SESSIONS - 1}]) -> port0_out2
+else:
+	tgen_src_0 -> Rewrite(templates=[bytes(pkt_template)]) -> port0_out0
+	tgen_src_1 -> Rewrite(templates=[bytes(pkt_template)]) -> port0_out1
+	tgen_src_2 -> Rewrite(templates=[bytes(pkt_template)]) -> port0_out2
+	
 # q_out.attach_task(wid=0)
 # tgen_src_0.attach_task(wid=1)
 # tgen_src_1.attach_task(wid=2)
