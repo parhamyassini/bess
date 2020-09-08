@@ -1,0 +1,98 @@
+# Copyright (c) 2014-2017, The Regents of the University of California.
+# Copyright (c) 2016-2017, Nefeli Networks, Inc.
+# All rights reserved.
+#
+# Description: Orca agent with Unix socket (packet mode) to notify the Go multicast client when the first packet arrives.
+# - Controller response evals (join delay):
+#   orca_tx.bess <--> orca_agent_socket.bess (Also see mdc_controller dummy_client.go)
+
+import mdcpkts
+import os
+import csv
+# Agent IDs we use 
+# port1: 4
+# port2: 16
+# port3: 64
+AGENT_ID = 0
+AGENT_LABEL = 0
+AGENT_NIC = '0000:7e:00.0'
+SWITCH_MAC = '06:a6:7e:72:37:92'
+AGENT_MAC = '06:9f:da:98:a4:76'
+
+RESULTS_BASE_DIR = '/home/pyassini/results/'
+TOTAL_PKT_SIZE = 1024
+PING_PKT_RATE = 1e3
+
+# Number of parallel pipelines to create
+CONCURRENCY_PARAM = 1
+
+# If set ACTIVE_AGENT to 0 the agent wont ping and it will not be selected as active agent 
+# For some experiments (e.g failure):
+# we need one machine to only be the receiver and active agent will be the two other machines
+ACTIVE_AGENT = 1
+
+# Just used for filename tags of experiment results
+CONTROLLER_TIMEOUT = 75
+
+HOST_SOCKET_PATH = "../domain_socket_file"
+
+try:
+    TOTAL_PKT_SIZE = int(os.getenv('ORCA_DATA_PKT_SIZE', None))
+except:
+    print("Error: variable ORCA_DATA_PKT_SIZE not set")
+    exit(1)
+try:
+    CONTROLLER_TIMEOUT = int(os.getenv('ORCA_CONTROLLER_TIMEOUT', None))
+except:
+    print("Error: variable ORCA_CONTROLLER_TIMEOUT not set")
+    exit(1)
+try:
+    ACTIVE_AGENT = int(os.getenv('ORCA_IS_ACTIVE_AGENT', None))
+except:
+    print("Error: variable ORCA_IS_ACTIVE_AGENT not set")
+    exit(1)
+try:
+    AGENT_ID = int(os.getenv('ORCA_AGENT_ID', None))
+    AGENT_LABEL = AGENT_ID
+except:
+    print("Error: variable ORCA_AGENT_ID not set")
+    exit(1)
+
+print("This Orca agent with throughput measurement script")
+
+# If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
+# TODO: this needs to depend on the CPU layout and where the NIC is.
+num_cores = CONCURRENCY_PARAM * 2 
+start_core = 0
+print('Core count = %d' % num_cores)
+
+ping_pkt = mdcpkts.make_mdc_ping_pkt(agent=AGENT_ID,
+                                     src_mac='F8:F2:1E:3C:0E:84',
+                                     dst_mac='02:53:55:4d:45:01')
+ping_pkt_bytes = bytes(ping_pkt)
+
+for i in range(num_cores):
+    bess.add_worker(wid=i, core=i + start_core)
+
+# Define Ports and Queues
+port0::PMDPort(port_id=0, num_inc_q=1, num_out_q=1, size_inc_q=4096, size_out_q=4096)
+port0_inc0::QueueInc(port=port0, qid=0, prefetch=1)
+port0_out0::QueueOut(port=port0, qid=0)
+port0_inc0.set_burst(burst=4)
+
+orca_socket_port = UnixSocketPort(name="orca_socket_port", path=HOST_SOCKET_PATH)
+client_sock = PortOut(port='orca_socket_port')
+
+mdc_receiver = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC,
+                           enable_measurement=False)
+
+mdc_pkt_gen::MdcPktGen(template=ping_pkt_bytes, pps=PING_PKT_RATE)
+
+mdc_receiver.add(entries=[{'addr': '02:53:00:00:00:00', 'label': 0x50505010}])
+#port0_inc0 -> Dump(interval=0.5) -> Queue(size=16384) -> 1:mdc_receiver:1 -> Sink()
+port0_inc0 -> q_0::Queue() -> 1:mdc_receiver:1 -> client_sock
+mdc_pkt_gen -> q_0
+mdc_receiver:0 -> port0_out0

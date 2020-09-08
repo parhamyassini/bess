@@ -24,7 +24,7 @@
 # 	For all of the above:
 #		RANDOMIZED_SESSIONS=False. 
 #		NUM_SESSIONSL=N/A.
-# 		ip_encap=True.
+# 		ip_encap=False.
 #		ORCA_TGEN_BURST_SIZE=32 (default burst).
 
 import mdcpkts
