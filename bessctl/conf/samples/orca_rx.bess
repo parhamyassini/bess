@@ -2,7 +2,23 @@
 # Copyright (c) 2016-2017, Nefeli Networks, Inc.
 # All rights reserved.
 #
-# Description: Orca multicast receiver for measurements. 
+# Description: Orca multicast receiver for measurements. Used in the following experiments:
+# Note: RSS not used in these experiments (latency not critical), randomly split the packets to workers.
+#       therfore, ip_encap=False.
+#
+#   CONCURRENCY_PARAM=3. This parameter sets the number of parallel pipleines for processing.
+#
+# - Agent CPU cyles:
+#   NUM_SESSIONS=1M.
+#   SESSION_ID_BASE: Same base ID as set in orca_tx.bess
+#   mdc_pkt_gen: disabled. (Contorl plane communication is not needed)
+#   
+# - Any expriment that throughput is measurement on receiver side (e.g failover performance, Rx throughput).
+#   Run this script on all of the multicast receivers.
+#   On the active agent, the bess logs will show the CPU cycles. 
+#   On other receivers, receive throughput in intervals is logged in a file after exiting the script.
+#   NUM_SESSIONS=1. 
+#   $ORCA_CONTROLLER_TIMEOUT= Used only for output log files.
 
 import mdcpkts
 import os
@@ -113,8 +129,6 @@ for i in range(CONCURRENCY_PARAM):
         else:
             mdc_receiver.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505054}])
             
-        
-        
         if i == 0:
             #mdc_pkt_gen::MdcPktGen(template=ping_pkt_bytes, pps=PING_PKT_RATE)
             rs:i -> q_0::Queue(size=16384) -> 1:mdc_receiver:1 -> Sink()
@@ -128,7 +142,6 @@ for i in range(CONCURRENCY_PARAM):
     mdc_receiver:0 -> Queue(size=16384) -> port0_out_arr[i]
     mdc_rec_arr.append(mdc_receiver)
 
-    
 
 if not ACTIVE_AGENT:
     bess.resume_all()
@@ -151,7 +164,6 @@ if not ACTIVE_AGENT:
         total_cycle = 0
         total_cycle_per_pkt = 0.0
         while True:
-            # Every 1ms, but the python script is a bit slow!
             ret_arr = []
             # get_summary() doesn't require workers to be stopped
             for i in range(CONCURRENCY_PARAM):
