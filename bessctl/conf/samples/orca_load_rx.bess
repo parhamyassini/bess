@@ -1,0 +1,348 @@
+# Copyright (c) 2014-2017, The Regents of the University of California.
+# Copyright (c) 2016-2017, Nefeli Networks, Inc.
+# All rights reserved.
+#
+# Description: Basic implementation for Orca agent load test.
+#   orca_load_rx.bess <--> orca_load_tx.bess
+#   Receives packets at 40Gbps from 4 ports over 2 NICs and labels them.
+#   Output logs will print the aggregate throughput for the labeled packets.
+
+import mdcpkts
+import os
+import csv
+import time
+# Agent IDs we use 
+# port1: 4
+# port2: 16
+# port3: 64
+AGENT_ID = 0
+AGENT_LABEL = 0
+AGENT_NIC = '0000:7e:00.0'
+SWITCH_MAC = '06:a6:7e:72:37:92'
+AGENT_MAC = '06:9f:da:98:a4:76'
+
+RESULTS_BASE_DIR = '/home/pyassini/results/'
+TOTAL_PKT_SIZE = 1024
+
+NUM_NICS = 2
+QUEUE_PER_NIC = 4
+
+CONTROLLER_TIMEOUT = 75
+
+try:
+    TOTAL_PKT_SIZE = int(os.getenv('ORCA_DATA_PKT_SIZE', None))
+except:
+    print("Error: variable ORCA_DATA_PKT_SIZE not set")
+    exit(1)
+try:
+    CONTROLLER_TIMEOUT = int(os.getenv('ORCA_CONTROLLER_TIMEOUT', None))
+except:
+    print("Error: variable ORCA_CONTROLLER_TIMEOUT not set")
+    exit(1)
+try:
+    ACTIVE_AGENT = int(os.getenv('ORCA_IS_ACTIVE_AGENT', None))
+except:
+    print("Error: variable ORCA_IS_ACTIVE_AGENT not set")
+    exit(1)
+try:
+    AGENT_ID = int(os.getenv('ORCA_AGENT_ID', None))
+    AGENT_LABEL = AGENT_ID
+except:
+    print("Error: variable ORCA_AGENT_ID not set")
+    exit(1)
+
+print("This Orca agent with throughput measurement script")
+
+# If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
+# TODO: this needs to depend on the CPU layout and where the NIC is.
+num_cores = 1
+
+start_core = 30
+print('Core count = %d' % num_cores)
+
+for i in range(num_cores):
+    bess.add_worker(wid=i, core=i + start_core)
+
+
+# Define Ports and Queues
+nic_0_port0::PMDPort(port_id=0, num_inc_q=4, num_out_q=4, size_inc_q=4096)
+nic_0_port1::PMDPort(port_id=1, num_inc_q=4, num_out_q=4, size_inc_q=4096)
+
+#Check this out
+nic_1_port0::PMDPort(port_id=2, num_inc_q=4, num_out_q=4, size_inc_q=4096)
+nic_1_port1::PMDPort(port_id=3, num_inc_q=4, num_out_q=4, size_inc_q=4096)
+
+
+nic_0_port0_inc0::QueueInc(port=nic_0_port0, qid=0, prefetch=1)
+nic_0_port0_inc1::QueueInc(port=nic_0_port0, qid=1, prefetch=1)
+nic_0_port0_inc2::QueueInc(port=nic_0_port0, qid=2, prefetch=1)
+nic_0_port0_inc3::QueueInc(port=nic_0_port0, qid=3, prefetch=1)
+
+nic_0_port1_inc0::QueueInc(port=nic_0_port1, qid=0, prefetch=1)
+nic_0_port1_inc1::QueueInc(port=nic_0_port1, qid=1, prefetch=1)
+nic_0_port1_inc2::QueueInc(port=nic_0_port1, qid=2, prefetch=1)
+nic_0_port1_inc3::QueueInc(port=nic_0_port1, qid=3, prefetch=1)
+
+nic_1_port0_inc0::QueueInc(port=nic_1_port0, qid=0, prefetch=1)
+nic_1_port0_inc1::QueueInc(port=nic_1_port0, qid=1, prefetch=1)
+nic_1_port0_inc2::QueueInc(port=nic_1_port0, qid=2, prefetch=1)
+nic_1_port0_inc3::QueueInc(port=nic_1_port0, qid=3, prefetch=1)
+
+nic_1_port1_inc0::QueueInc(port=nic_1_port1, qid=0, prefetch=1)
+nic_1_port1_inc1::QueueInc(port=nic_1_port1, qid=1, prefetch=1)
+nic_1_port1_inc2::QueueInc(port=nic_1_port1, qid=2, prefetch=1)
+nic_1_port1_inc3::QueueInc(port=nic_1_port1, qid=3, prefetch=1)
+
+
+mdc_rec_nic0_port0_q0 = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC,
+                           ip_encap=True)
+mdc_rec_nic0_port0_q1 = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC,
+                           ip_encap=True)
+mdc_rec_nic0_port0_q2 = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC,
+                           ip_encap=True,
+                           )
+mdc_rec_nic0_port0_q3 = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC,
+                           ip_encap=True,
+                           )
+
+mdc_rec_nic0_port1_q0 = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC,
+                           ip_encap=True,
+                           )
+mdc_rec_nic0_port1_q1 = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC,
+                           ip_encap=True,
+                           )
+mdc_rec_nic0_port1_q2 = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC,
+                           ip_encap=True,
+                           )
+mdc_rec_nic0_port1_q3 = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC,
+                           ip_encap=True,
+                           )
+
+mdc_rec_nic1_port0_q0 = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC,
+                           ip_encap=True,
+                           )
+mdc_rec_nic1_port0_q1 = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC,
+                           ip_encap=True,
+                           )
+mdc_rec_nic1_port0_q2 = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC,
+                           ip_encap=True,
+                           )
+mdc_rec_nic1_port0_q3 = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC,
+                           ip_encap=True,
+                           )
+
+mdc_rec_nic1_port1_q0 = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC,
+                           ip_encap=True,
+                           )
+mdc_rec_nic1_port1_q1 = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC,
+                           ip_encap=True,
+                           )
+mdc_rec_nic1_port1_q2 = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC,
+                           ip_encap=True,
+                           )
+mdc_rec_nic1_port1_q3 = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC,
+                           ip_encap=True,
+                           )
+
+
+# Bounce the packet back to Ramses
+mdc_rec_nic0_port0_q0.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505040}])
+mdc_rec_nic0_port0_q1.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505040}])
+mdc_rec_nic0_port0_q2.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505040}])
+mdc_rec_nic0_port0_q3.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505040}])
+
+mdc_rec_nic0_port1_q0.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505040}])
+mdc_rec_nic0_port1_q1.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505040}])
+mdc_rec_nic0_port1_q2.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505040}])
+mdc_rec_nic0_port1_q3.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505040}])
+
+mdc_rec_nic1_port0_q0.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505040}])
+mdc_rec_nic1_port0_q1.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505040}])
+mdc_rec_nic1_port0_q2.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505040}])
+mdc_rec_nic1_port0_q3.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505040}])
+
+mdc_rec_nic1_port1_q0.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505040}])
+mdc_rec_nic1_port1_q1.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505040}])
+mdc_rec_nic1_port1_q2.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505040}])
+mdc_rec_nic1_port1_q3.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505040}])
+
+
+ot_nic0_port0_q0 = OrcaThroughput()
+ot_nic0_port0_q1 = OrcaThroughput()
+ot_nic0_port0_q2 = OrcaThroughput()
+ot_nic0_port0_q3 = OrcaThroughput()
+
+ot_nic0_port1_q0 = OrcaThroughput()
+ot_nic0_port1_q1 = OrcaThroughput()
+ot_nic0_port1_q2 = OrcaThroughput()
+ot_nic0_port1_q3 = OrcaThroughput()
+
+ot_nic1_port0_q0 = OrcaThroughput()
+ot_nic1_port0_q1 = OrcaThroughput()
+ot_nic1_port0_q2 = OrcaThroughput()
+ot_nic1_port0_q3 = OrcaThroughput()
+
+ot_nic1_port1_q0 = OrcaThroughput()
+ot_nic1_port1_q1 = OrcaThroughput()
+ot_nic1_port1_q2 = OrcaThroughput()
+ot_nic1_port1_q3 = OrcaThroughput()
+
+nic_0_port0_inc0 -> 1:mdc_rec_nic0_port0_q0:0 -> ot_nic0_port0_q0 -> Sink()
+nic_0_port0_inc1 -> 1:mdc_rec_nic0_port0_q1:0 -> ot_nic0_port0_q1 -> Sink()
+nic_0_port0_inc2 -> 1:mdc_rec_nic0_port0_q2:0 -> ot_nic0_port0_q2 -> Sink()
+nic_0_port0_inc3 -> 1:mdc_rec_nic0_port0_q3:0 -> ot_nic0_port0_q3 -> Sink()
+
+nic_0_port1_inc0 -> 1:mdc_rec_nic0_port1_q0:0 -> ot_nic0_port1_q0 -> Sink()
+nic_0_port1_inc1 -> 1:mdc_rec_nic0_port1_q1:0 -> ot_nic0_port1_q1 -> Sink()
+nic_0_port1_inc2 -> 1:mdc_rec_nic0_port1_q2:0 -> ot_nic0_port1_q2 -> Sink()
+nic_0_port1_inc3 -> 1:mdc_rec_nic0_port1_q3:0 -> ot_nic0_port1_q3 -> Sink()
+
+nic_1_port0_inc0 -> 1:mdc_rec_nic1_port0_q0:0 -> ot_nic1_port0_q0 -> Sink()
+nic_1_port0_inc1 -> 1:mdc_rec_nic1_port0_q1:0 -> ot_nic1_port0_q1 -> Sink()
+nic_1_port0_inc2 -> 1:mdc_rec_nic1_port0_q2:0 -> ot_nic1_port0_q2 -> Sink()
+nic_1_port0_inc3 -> 1:mdc_rec_nic1_port0_q3:0 -> ot_nic1_port0_q3 -> Sink()
+
+nic_1_port1_inc0 -> 1:mdc_rec_nic1_port1_q0:0 -> ot_nic1_port1_q0 -> Sink()
+nic_1_port1_inc1 -> 1:mdc_rec_nic1_port1_q1:0 -> ot_nic1_port1_q1 -> Sink()
+nic_1_port1_inc2 -> 1:mdc_rec_nic1_port1_q2:0 -> ot_nic1_port1_q2 -> Sink()
+nic_1_port1_inc3 -> 1:mdc_rec_nic1_port1_q3:0 -> ot_nic1_port1_q3 -> Sink()
+
+
+bess.resume_all()
+last_bits_nic0_port0_q0 = 0
+last_bits_nic0_port0_q1 = 0
+last_bits_nic0_port0_q2 = 0
+last_bits_nic0_port0_q3 = 0
+
+last_bits_nic0_port1_q0 = 0
+last_bits_nic0_port1_q1 = 0
+last_bits_nic0_port1_q2 = 0
+last_bits_nic0_port1_q3 = 0
+
+last_bits_nic1_port0_q0 = 0
+last_bits_nic1_port0_q1 = 0
+last_bits_nic1_port0_q2 = 0
+last_bits_nic1_port0_q3 = 0
+
+last_bits_nic1_port1_q0 = 0
+last_bits_nic1_port1_q1 = 0
+last_bits_nic1_port1_q2 = 0
+last_bits_nic1_port1_q3 = 0
+
+last_read_ns = 0
+while True:
+    time.sleep(1)
+
+    total_bits = 0.0
+
+    ret_nic0_port0_q0 = ot_nic0_port0_q0.get_latest(clear=False)
+    ret_nic0_port0_q1 = ot_nic0_port0_q1.get_latest(clear=False)
+    ret_nic0_port0_q2 = ot_nic0_port0_q2.get_latest(clear=False)
+    ret_nic0_port0_q3 = ot_nic0_port0_q3.get_latest(clear=False)
+
+    ret_nic0_port1_q0 = ot_nic0_port1_q0.get_latest(clear=False)
+    ret_nic0_port1_q1 = ot_nic0_port1_q1.get_latest(clear=False)
+    ret_nic0_port1_q2 = ot_nic0_port1_q2.get_latest(clear=False)
+    ret_nic0_port1_q3 = ot_nic0_port1_q3.get_latest(clear=False)
+
+    ret_nic1_port0_q0 = ot_nic1_port0_q0.get_latest(clear=False)
+    ret_nic1_port0_q1 = ot_nic1_port0_q1.get_latest(clear=False)
+    ret_nic1_port0_q2 = ot_nic1_port0_q2.get_latest(clear=False)
+    ret_nic1_port0_q3 = ot_nic1_port0_q3.get_latest(clear=False)
+
+    ret_nic1_port1_q0 = ot_nic1_port1_q0.get_latest(clear=False)
+    ret_nic1_port1_q1 = ot_nic1_port1_q1.get_latest(clear=False)
+    ret_nic1_port1_q2 = ot_nic1_port1_q2.get_latest(clear=False)
+    ret_nic1_port1_q3 = ot_nic1_port1_q3.get_latest(clear=False)
+
+    diff_ns =  ret_nic0_port0_q0.timestamp - last_read_ns
+    last_read_ns = ret_nic0_port0_q0.timestamp
+    total_bits += ((ret_nic0_port0_q0.bytes * 8.0) - last_bits_nic0_port0_q0)
+    total_bits += ((ret_nic0_port0_q1.bytes * 8.0) - last_bits_nic0_port0_q1)
+    total_bits += ((ret_nic0_port0_q2.bytes * 8.0) - last_bits_nic0_port0_q2)
+    total_bits += ((ret_nic0_port0_q3.bytes * 8.0) - last_bits_nic0_port0_q3)
+
+    total_bits += ((ret_nic0_port1_q0.bytes * 8.0) - last_bits_nic0_port1_q0)
+    total_bits += ((ret_nic0_port1_q1.bytes * 8.0) - last_bits_nic0_port1_q1)
+    total_bits += ((ret_nic0_port1_q2.bytes * 8.0) - last_bits_nic0_port1_q2)
+    total_bits += ((ret_nic0_port1_q3.bytes * 8.0) - last_bits_nic0_port1_q3)
+
+    total_bits += ((ret_nic1_port0_q0.bytes * 8.0) - last_bits_nic1_port0_q0)
+    total_bits += ((ret_nic1_port0_q1.bytes * 8.0) - last_bits_nic1_port0_q1)
+    total_bits += ((ret_nic1_port0_q2.bytes * 8.0) - last_bits_nic1_port0_q2)
+    total_bits += ((ret_nic1_port0_q3.bytes * 8.0) - last_bits_nic1_port0_q3)
+
+    total_bits += ((ret_nic1_port1_q0.bytes * 8.0) - last_bits_nic1_port1_q0)
+    total_bits += ((ret_nic1_port1_q1.bytes * 8.0) - last_bits_nic1_port1_q1)
+    total_bits += ((ret_nic1_port1_q2.bytes * 8.0) - last_bits_nic1_port1_q2)
+    total_bits += ((ret_nic1_port1_q3.bytes * 8.0) - last_bits_nic1_port1_q3)
+
+    last_bits_nic0_port0_q0 = ret_nic0_port0_q0.bytes * 8.0
+    last_bits_nic0_port0_q1 = ret_nic0_port0_q1.bytes * 8.0
+    last_bits_nic0_port0_q2 = ret_nic0_port0_q2.bytes * 8.0
+    last_bits_nic0_port0_q3 = ret_nic0_port0_q3.bytes * 8.0
+
+    last_bits_nic0_port1_q0 = ret_nic0_port1_q0.bytes * 8.0
+    last_bits_nic0_port1_q1 = ret_nic0_port1_q1.bytes * 8.0
+    last_bits_nic0_port1_q2 = ret_nic0_port1_q2.bytes * 8.0
+    last_bits_nic0_port1_q3 = ret_nic0_port1_q3.bytes * 8.0
+
+    last_bits_nic1_port0_q0 = ret_nic1_port0_q0.bytes * 8.0
+    last_bits_nic1_port0_q1 = ret_nic1_port0_q1.bytes * 8.0
+    last_bits_nic1_port0_q2 = ret_nic1_port0_q2.bytes * 8.0
+    last_bits_nic1_port0_q3 = ret_nic1_port0_q3.bytes * 8.0
+
+    last_bits_nic1_port1_q0 = ret_nic1_port1_q0.bytes * 8.0
+    last_bits_nic1_port1_q1 = ret_nic1_port1_q1.bytes * 8.0
+    last_bits_nic1_port1_q2 = ret_nic1_port1_q2.bytes * 8.0
+    last_bits_nic1_port1_q3 = ret_nic1_port1_q3.bytes * 8.0
+    
+    print("Total throughput (Mbps): " + str((total_bits/diff_ns) * 10e3))
