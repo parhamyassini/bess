@@ -1,0 +1,124 @@
+# Copyright (c) 2014-2017, The Regents of the University of California.
+# Copyright (c) 2016-2017, Nefeli Networks, Inc.
+# All rights reserved.
+#
+# Description: Orca agent for latency measurements. Will simply send the packets back to the sender.
+# multicast_latency.bess <--> multicast_latency_orca_reply.bess
+# Default behaviour is to send back packets to a machine on port 0 (nsl-ramses).
+
+import mdcpkts
+import os
+import csv
+# Agent IDs we use 
+# port1: 4
+# port2: 16
+# port3: 64
+AGENT_ID = 0
+AGENT_LABEL = 0
+AGENT_NIC = '0000:7e:00.0'
+SWITCH_MAC = '06:a6:7e:72:37:92'
+AGENT_MAC = '06:9f:da:98:a4:76'
+
+RESULTS_BASE_DIR = '/home/pyassini/results/'
+TOTAL_PKT_SIZE = 1024
+# Number of parallel pipelines to create
+CONCURRENCY_PARAM = 4
+# If set ACTIVE_AGENT to 0 the agent wont ping and it will not be selected as active agent 
+# (For experiments we want one machine to only be the receiver and active agent will be the two other machines)
+ACTIVE_AGENT = 1
+CONTROLLER_TIMEOUT = 75
+
+try:
+    TOTAL_PKT_SIZE = int(os.getenv('ORCA_DATA_PKT_SIZE', None))
+except:
+    print("Error: variable ORCA_DATA_PKT_SIZE not set")
+    exit(1)
+try:
+    CONTROLLER_TIMEOUT = int(os.getenv('ORCA_CONTROLLER_TIMEOUT', None))
+except:
+    print("Error: variable ORCA_CONTROLLER_TIMEOUT not set")
+    exit(1)
+try:
+    ACTIVE_AGENT = int(os.getenv('ORCA_IS_ACTIVE_AGENT', None))
+except:
+    print("Error: variable ORCA_IS_ACTIVE_AGENT not set")
+    exit(1)
+try:
+    AGENT_ID = int(os.getenv('ORCA_AGENT_ID', None))
+    AGENT_LABEL = AGENT_ID
+except:
+    print("Error: variable ORCA_AGENT_ID not set")
+    exit(1)
+
+print("This Orca agent with throughput measurement script")
+
+# If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
+# TODO: this needs to depend on the CPU layout and where the NIC is.
+num_cores = CONCURRENCY_PARAM * 2 + 1
+start_core = 0
+print('Core count = %d' % num_cores)
+
+for i in range(num_cores):
+    bess.add_worker(wid=i, core=i + start_core)
+
+# Define Ports and Queues
+port0::PMDPort(port_id=0, num_inc_q=4, num_out_q=4, size_inc_q=1024, size_out_q=1024)
+port0_inc0::QueueInc(port=port0, qid=0, prefetch=0)
+port0_inc0.set_burst(burst=4)
+port0_inc1::QueueInc(port=port0, qid=1, prefetch=0)
+port0_inc1.set_burst(burst=4)
+port0_inc2::QueueInc(port=port0, qid=2, prefetch=0)
+port0_inc2.set_burst(burst=4)
+port0_inc3::QueueInc(port=port0, qid=3, prefetch=1)
+port0_inc3.set_burst(burst=4)
+port0_out0::QueueOut(port=port0, qid=0)
+port0_out1::QueueOut(port=port0, qid=1)
+port0_out2::QueueOut(port=port0, qid=2)
+port0_out3::QueueOut(port=port0, qid=3)
+
+mdc_receiver0 = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC,
+                           ip_encap=True,
+                           enable_measurement=False)
+
+mdc_receiver1 = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC,
+                           ip_encap=True,
+                           enable_measurement=False)
+
+mdc_receiver2 = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC,
+                           ip_encap=True,
+                           enable_measurement=False)
+
+mdc_receiver3 = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC,
+                           ip_encap=True,
+                           enable_measurement=False)
+
+# Bounce the packet back to Ramses
+mdc_receiver0.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505051}])
+mdc_receiver1.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505051}])
+mdc_receiver2.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505051}])
+mdc_receiver3.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505051}])
+
+port0_inc0 -> 1:mdc_receiver0:0 -> port0_out0
+#port0_inc0 -> Sink()
+#mdc_receiver0:1 -> Sink()
+port0_inc1 -> 1:mdc_receiver1:0 -> port0_out1
+port0_inc2 -> 1:mdc_receiver2:0 -> port0_out2
+port0_inc3 -> 1:mdc_receiver3:0 -> port0_out3
+#port0_inc0 -> Sink()
+#port0_inc1 -> Sink()
+#port0_inc2 -> Sink()
+#port0_inc3 -> Sink()
+#Sink()
+#mdc_receiver:0 -> port0_out0
