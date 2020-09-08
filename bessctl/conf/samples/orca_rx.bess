@@ -2,46 +2,68 @@
 # Copyright (c) 2016-2017, Nefeli Networks, Inc.
 # All rights reserved.
 #
-# Description: Full mDC agent including file_reader, file_writer and mdc_agent for making an
-#  autonomous agent.
-
+# Description: Orca multicast receiver for measurements. 
 
 import mdcpkts
 import os
+import csv
 # Agent IDs we use 
 # port1: 4
 # port2: 16
 # port3: 64
-AGENT_ID = 4
-AGENT_LABEL = 0x04
+AGENT_ID = 0
+AGENT_LABEL = 0
 AGENT_NIC = '0000:7e:00.0'
 SWITCH_MAC = '06:a6:7e:72:37:92'
 AGENT_MAC = '06:9f:da:98:a4:76'
-total_packet_size = 800
+
+RESULTS_BASE_DIR = '/home/pyassini/results/'
+TOTAL_PKT_SIZE = 1024
 CONCURRENCY_PARAM = 3
-HOST_SOCKET_PATH = "../domain_socket_file"
-CONTAINER_SOCKET_BASE_PATH = "/var/run/sockets/"
-NUM_INSTANCES = 1
-CONTAINER_NAME_BASE = "container_"
+# If set ACTIVE_AGENT to 0 the agent wont ping and it will not be selected as active agent 
+# (For experiments we want one machine to only be the receiver and active agent will be the two other machines)
+ACTIVE_AGENT = 1
+CONTROLLER_TIMEOUT = 75
+PING_PKT_RATE = 2.5e3
+
+SESSION_ID_BASE = '02:53:00:'
+NUM_SESSIONS = 1000000 # 1M sessions
 try:
-    NUM_INSTANCES = int(os.getenv('NUM_INSTANCES', None))
+    TOTAL_PKT_SIZE = int(os.getenv('ORCA_DATA_PKT_SIZE', None))
 except:
-    print("Error: variable NUM_INSTANCES not set")
+    print("Error: variable ORCA_DATA_PKT_SIZE not set")
     exit(1)
 try:
-    CONTAINER_NAME_BASE = os.getenv('CONTAINER_NAME_BASE', "container_")
+    CONTROLLER_TIMEOUT = int(os.getenv('ORCA_CONTROLLER_TIMEOUT', None))
 except:
-    print("Error: variable CONTAINER_NAME_BASE not set")
+    print("Error: variable ORCA_CONTROLLER_TIMEOUT not set")
+    exit(1)
+try:
+    ACTIVE_AGENT = int(os.getenv('ORCA_IS_ACTIVE_AGENT', None))
+except:
+    print("Error: variable ORCA_IS_ACTIVE_AGENT not set")
+    exit(1)
+try:
+    AGENT_ID = int(os.getenv('ORCA_AGENT_ID', None))
+    AGENT_LABEL = AGENT_ID
+except:
+    print("Error: variable ORCA_AGENT_ID not set")
     exit(1)
 
-print("This is the full Orca agent with application interface")
+print("This Orca agent with throughput measurement script")
 
-pkt_template = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x50505001, pkt_len=0, src_mac='06:16:3e:1b:72:32', dst_mac='02:53:55:4d:45:02') 
-
+pkt_template = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x50505001,
+                                                    pkt_len=0,
+                                                    src_mac='06:16:3e:1b:72:32',
+                                                    dst_mac='02:53:55:4d:45:02') 
+ping_pkt = mdcpkts.make_mdc_ping_pkt(agent=AGENT_ID,
+                                     src_mac='F8:F2:1E:3C:0E:84',
+                                     dst_mac='02:53:55:4d:45:01')
+ping_pkt_bytes = bytes(ping_pkt)
 
 # If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
 # TODO: this needs to depend on the CPU layout and where the NIC is.
-num_cores = CONCURRENCY_PARAM * 2 + 2
+num_cores = CONCURRENCY_PARAM * 2 + 3
 start_core = 0
 print('Core count = %d' % num_cores)
 for i in range(num_cores):
@@ -60,56 +82,117 @@ for i in range(CONCURRENCY_PARAM):
     port0_out_arr.append(port0_out)
     gates_arr.append(i)
 
-port0_inc0 -> q::Queue(size=16384) -> rs::RandomSplit(drop_rate=0.0, gates=gates_arr)
+port0_inc0 -> Queue(size=16384) -> rs::RandomSplit(drop_rate=0.0, gates=gates_arr)
+
+session_idx = 0
+
 for i in range(CONCURRENCY_PARAM):
     mdc_receiver = MdcReceiver(agent_id=AGENT_ID,
                            agent_label=AGENT_LABEL,
                            switch_mac=SWITCH_MAC,
-                           agent_mac=AGENT_MAC)
-    mdc_receiver.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505054}])
-    ot = OrcaThroughput()
-    rs:i -> Queue(size=16384) -> 1:mdc_receiver:1 -> ot -> Sink()
-    orca_throughput_arr.append(ot)
+                           agent_mac=AGENT_MAC,
+                           enable_measurement=((i==0) and (ACTIVE_AGENT)))
+    session_idx = 0
+    for a in range(256):
+        if session_idx >= NUM_SESSIONS:
+            break;
+        for b in range(256):
+            if session_idx >= NUM_SESSIONS:
+                break;
+            for c in range(256): 
+                if session_idx >= NUM_SESSIONS:
+                    break;
+                session_id = SESSION_ID_BASE+ "%02x:%02x:%02x" % (a,b,c)
+                session_idx += 1
+                mdc_receiver.add(entries=[{'addr': session_id, 'label': 0x50505054}])
+    if ACTIVE_AGENT:
+        if (i==0):
+            
+            mdc_receiver.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505054}])
+            print("Added sessions: " + str(session_idx))
+        else:
+            mdc_receiver.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505054}])
+            
+        
+        
+        if i == 0:
+            #mdc_pkt_gen::MdcPktGen(template=ping_pkt_bytes, pps=PING_PKT_RATE)
+            rs:i -> q_0::Queue(size=16384) -> 1:mdc_receiver:1 -> Sink()
+            #mdc_pkt_gen -> q_0
+        else:
+            rs:i -> Queue(size=16384) -> 1:mdc_receiver:1 -> Sink()
+    else: 
+        ot = OrcaThroughput()
+        rs:i -> Queue(size=16384) -> 1:mdc_receiver:1 -> ot -> Sink()
+        orca_throughput_arr.append(ot)
     mdc_receiver:0 -> Queue(size=16384) -> port0_out_arr[i]
     mdc_rec_arr.append(mdc_receiver)
 
-bess.resume_all()
-
-last_time = [0,0,0,0]
-last_bits = [0, 0, 0, 0]
-last_pkts = [0, 0, 0, 0]
-total_pps = 0
-total_bps = 0
-total_cycle = 0
-total_pkt = 0
-total_cycle_per_pkt = 0.0
-while True:
-    time.sleep(0.1)
-    diff_pkts = [0, 0, 0, 0]
-    diff_bits = [0, 0, 0, 0]
-    ret_arr = []
-    diff_ns = 0
-    # get_summary() doesn't require workers to be stopped
-    for i in range(CONCURRENCY_PARAM):
-        ret_t = orca_throughput_arr[i].get_latest(clear=False)
-        ret_arr.append(ret_t)
-        ret_mdc = mdc_rec_arr[i].get_cycle(clear=True)
-        total_pkt += ret_mdc.packets
-        total_cycle += ret_mdc.total_cycle
     
-    if ret_arr[0].timestamp - last_time[0] >= 1e8: # Every 10 ms (1e7 ns)
-        for i in range(CONCURRENCY_PARAM):
-            diff_ns = ret_arr[i].timestamp - last_time[i]
-            diff_pkts[i] = ret_arr[i].packets - last_pkts[i]
-            diff_bits[i] = (ret_arr[i].bytes * 8.0) - last_bits[i]
-            last_pkts[i] = ret_arr[i].packets
-            last_bits[i] = (ret_arr[i].bytes * 8.0)
-            last_time[i] = ret_arr[i].timestamp
-            total_pps += 1e3 * (float(diff_pkts[i]) / diff_ns)
-            total_bps += 1e3 * (float(diff_bits[i]) / diff_ns)
-        print('%12.6f: %5.3f Mpps, %8.3f Mbps, ' % (diff_ns, total_pps, total_bps))
-        total_cycle_per_pkt = float(total_cycle) / total_pkt
-        print("CPU Cycles per Packet = " + str(total_cycle_per_pkt))
-        total_pps = 0
-        total_bps = 0
+
+if not ACTIVE_AGENT:
+    bess.resume_all()
+
+    # Measurement script:
+    result_cpu = []
+    result_tick_cpu = []
+    result_tick_throughput = []
+    result_pps = []
+    result_bps = []
+    
+    # Workaround to save the results on the file when hit "ctrl + C"
+
+    try: 
+        last_read_throughput = 0
+        last_read_mdc = 0
+        last_bits = [0, 0, 0, 0]
+        last_pkts = [0, 0, 0, 0]
+        total_pkt = 0
+        total_cycle = 0
+        total_cycle_per_pkt = 0.0
+        while True:
+            # Every 1ms, but the python script is a bit slow!
+            ret_arr = []
+            # get_summary() doesn't require workers to be stopped
+            for i in range(CONCURRENCY_PARAM):
+                ret_t = orca_throughput_arr[i].get_latest(clear=False)
+                ret_arr.append(ret_t)
+            
+            # if ret_arr[0].timestamp - last_read_throughput >= 1e6: # Every 1 ms (1e6 ns)
+            total_pps = 0
+            total_bps = 0
+            for i in range(CONCURRENCY_PARAM):
+                total_pps += (ret_arr[i].packets - last_pkts[i])
+                total_bps += (ret_arr[i].bytes * 8.0) - last_bits[i]
+                last_pkts[i] = ret_arr[i].packets
+                last_bits[i] = (ret_arr[i].bytes * 8.0)
+            #print('%12.6f: %5.3f Mpps, %8.3f Mbps, ' % (diff_ns, total_pps, total_bps))
+            result_tick_throughput.append(ret_arr[0].timestamp)
+            result_bps.append(total_bps)
+            result_pps.append(total_pps)
+            last_read_throughput = ret_arr[0].timestamp
+                
+    except KeyboardInterrupt:
+        throughput_results_path = RESULTS_BASE_DIR + 'throughput_size_' + str(TOTAL_PKT_SIZE) + '_k_' + str(CONTROLLER_TIMEOUT) + '.csv'
+        cpu_results_path = RESULTS_BASE_DIR + 'cpu_size_' + str(TOTAL_PKT_SIZE) + '.csv'
+        with open(throughput_results_path, 'wb') as file:
+            fieldnames = ['timestamp', 'pkts', 'bits']
+            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            writer.writeheader()
+            for i in range(len(result_tick_throughput)):
+                writer.writerow({
+                    'timestamp': result_tick_throughput[i],
+                    'pkts': result_pps[i],
+                    'bits': result_bps[i]
+                })
+        if ACTIVE_AGENT: 
+            with open(cpu_results_path, 'wb') as file:
+                fieldnames = ['timestamp', 'cycle_per_pkt']
+                writer = csv.DictWriter(file, fieldnames=fieldnames)
+                writer.writeheader()
+                for i in range(len(result_tick_cpu)):
+                    writer.writerow({
+                        'timestamp': result_tick_cpu[i],
+                        'cycle_per_pkt': result_cpu[i]
+                    })
 
