@@ -43,7 +43,7 @@ const Commands OrcaThroughput::cmds = {
 CommandResponse OrcaThroughput::CommandGetLatest(const sample::orca_throughput::pb::OrcaThroughputCommandGetLatestArg &arg) 
 {
     sample::orca_throughput::pb::OrcaThroughputCommandGetLatestResponse r;
-    r.set_timestamp(prev_ns_);
+    r.set_timestamp(tsc_to_ns(rdtsc()));
     r.set_bytes(prev_bytes_cnt_);
     r.set_packets(prev_pkt_cnt_);
     if(arg.clear() == 1) {
@@ -82,7 +82,7 @@ OrcaThroughput::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
     prev_pkt_cnt_ += cnt;
 
     for (int i = 0; i < cnt; i++) {
-        prev_bytes_cnt_ += batch->pkts()[i]->total_len();
+        prev_bytes_cnt_ += (batch->pkts()[i]->total_len() + 24);
     }
     prev_ns_ = tsc_to_ns(rdtsc());
     
