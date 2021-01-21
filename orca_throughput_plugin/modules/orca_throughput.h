@@ -28,8 +28,8 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef BESS_MODULES_LABELLOOKUP_H_
-#define BESS_MODULES_LABELLOOKUP_H_
+#ifndef BESS_MODULES_ORCA_THROUGHPUT_H_
+#define BESS_MODULES_ORCA_THROUGHPUT_H_
 
 
 #include "module.h"
@@ -41,9 +41,10 @@
 #include "utils/udp.h"
 #include "utils/common.h"
 #include "utils/time.h"
+#include "utils/mcslock.h"
 #include "utils/exact_match_table.h"
 
-#include "pb/aws_mdc_throughput_msg.pb.h"
+#include "pb/orca_throughput_msg.pb.h"
 
 
 //using bess::utils::ExactMatchField;
@@ -60,11 +61,11 @@ using bess::utils::Arp;
 using bess::utils::Ipv4;
 using bess::utils::Udp;
 
-class AwsMdcThroughput final : public Module {
+class OrcaThroughput final : public Module {
 public:
   static const Commands cmds;
 
-  AwsMdcThroughput() : Module(), prev_ns_(0), prev_pkt_cnt_(0), prev_bytes_cnt_(0), time_idx_(0) {
+  OrcaThroughput() : Module(), prev_ns_(0), prev_pkt_cnt_(0), prev_bytes_cnt_(0), time_idx_(0) {
 
   }
 
@@ -74,7 +75,7 @@ public:
   void ProcessBatch(Context *ctx, bess::PacketBatch *batch) override;
 
   CommandResponse CommandClear(const bess::pb::EmptyArg &arg);
-
+  CommandResponse CommandGetLatest(const sample::orca_throughput::pb::OrcaThroughputCommandGetLatestArg &arg);
 private:
     static const uint64_t kDefaultMaxNs = 1'000'000;  // 1 ms
 
@@ -82,7 +83,8 @@ private:
     uint64_t prev_pkt_cnt_;
     uint64_t prev_bytes_cnt_;
     uint64_t time_idx_;
-
+    mcslock lock_;
 };
 
-#endif // BESS_MODULES_LABELLOOKUP_H_
+#endif // BESS_MODULES_ORCA_THROUGHPUT_H_
+

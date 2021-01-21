@@ -1,0 +1,130 @@
+# Copyright (c) 2014-2017, The Regents of the University of California.
+# Copyright (c) 2016-2017, Nefeli Networks, Inc.
+# All rights reserved.
+#
+# Description: Full mDC agent including file_reader, file_writer and mdc_agent for making an
+#  autonomous agent.
+
+
+import mdcpkts
+import os
+# Agent IDs we use 
+# port1: 4
+# port2: 16
+# port3: 64
+AGENT_ID = 64
+AGENT_LABEL = 0x40
+AGENT_NIC = '0000:7e:00.0'
+SWITCH_MAC = '06:a6:7e:72:37:92'
+AGENT_MAC = '06:9f:da:98:a4:76'
+#AGENT_MAC = '02:53:55:4d:45:01'
+# SWITCH_IP = '172.31.17.223'
+# AGENT_IP = '172.31.26.147'
+total_packet_size = 800
+
+HOST_SOCKET_PATH = "../domain_socket_file"
+CONTAINER_SOCKET_BASE_PATH = "/var/run/sockets/"
+NUM_INSTANCES = 1
+CONTAINER_NAME_BASE = "container_"
+try:
+    NUM_INSTANCES = int(os.getenv('NUM_INSTANCES', None))
+except:
+    print("Error: variable NUM_INSTANCES not set")
+    exit(1)
+try:
+    CONTAINER_NAME_BASE = os.getenv('CONTAINER_NAME_BASE', "container_")
+except:
+    print("Error: variable CONTAINER_NAME_BASE not set")
+    exit(1)
+
+print("This is the full Orca agent with application interface")
+
+orca_sockets = []
+pkt_template = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x50505001, pkt_len=0, src_mac='06:16:3e:1b:72:32', dst_mac='02:53:55:4d:45:02') 
+# Modules for communication with APP
+for i in range (NUM_INSTANCES):
+    sock_name = CONTAINER_NAME_BASE + str(i)
+    sock_path = CONTAINER_SOCKET_BASE_PATH + CONTAINER_NAME_BASE + str(i)
+    orca_socket = OrcaUnixSocketPort(name=sock_name, path=sock_path, template=bytes(pkt_template), enable_time_stamp=0, packet_size=total_packet_size-12)
+    orca_sockets.append(orca_socket)
+
+# assert 64 <= data_pkt_size <= 1024, 'Data pkts needs to be in the range [64, 1024] in bytes'
+
+mdc_receiver = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC)
+
+# Adds (session address, label) tuples to the MdcReceiver module
+#mdc_receiver.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505054}])
+mdc_receiver.add(entries=[{'addr': '02:53:55:4d:45:02', 'label': 0x50505001}])
+
+# If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
+# TODO: this needs to depend on the CPU layout and where the NIC is.
+num_cores = NUM_INSTANCES + 3
+start_core = 0
+print('Core count = %d' % num_cores)
+for i in range(num_cores):
+    bess.add_worker(wid=i, core=i + start_core)
+
+# Define Ports and Queues
+port0::PMDPort(port_id=0, num_inc_q=1, num_out_q=1)
+
+port0_inc0::QueueInc(port=port0, qid=0, prefetch=1)
+port0_out0::QueueOut(port=port0, qid=0)
+
+# Creates mDC modules: a receiver, a control pkt generator and Health check
+#port0_inc0 -> Sink()
+# packets from the incoming port on ext_gate, are sent to mdc_receiver
+merger::Merge()
+gates_arr = []
+inc_socket_arr = []
+out_socket_arr = []
+out_queues_arr = []
+for i in range(NUM_INSTANCES):
+    sock_name = CONTAINER_NAME_BASE + str(i)
+    inc_socket = PortInc(port=sock_name)
+    inc_socket -> merger
+    inc_socket_arr.append(inc_socket)
+    gates_arr.append(i)
+
+port0_inc0 -> 1:mdc_receiver:1 -> buf_in::Queue(size=16384, prefetch=1) -> repl::Replicate(gates=gates_arr)
+
+#pkt_size = 800
+#assert(60 <= pkt_size <= 1522)
+#import scapy.all as scapy
+#eth = scapy.Ether(src='02:1e:67:9f:4d:ae', dst='06:16:3e:1b:72:32')
+#ip = scapy.IP(src='10.0.0.1', dst='10.0.0.2')   # dst IP is overwritten
+#tcp = scapy.TCP(sport=10001, dport=10002)
+#payload = ('hello' + '0123456789' * 200)[:pkt_size-len(eth/ip/tcp)]
+#pkt = eth/ip/tcp/payload
+#pkt_data = bytes(pkt)
+
+# NOTE: without quick_rampup=1, it takes a while to converge to
+# the desied load level, especially when flow duration is pareto distribution
+#FlowGen(template=pkt_data, pps=1.5e6, flow_rate = 1.5e4, flow_duration = 12.0, \
+#        arrival='exponential', duration='pareto', quick_rampup=True) -> Queue(size=16384) -> repl::Replicate(gates=gates_arr)
+
+for i in range(NUM_INSTANCES):
+    sock_name = CONTAINER_NAME_BASE + str(i)
+    out_socket = PortOut(port=sock_name)
+    queue = Queue(size=16384)
+    repl:i  -> queue -> out_socket
+    out_socket_arr.append(out_socket)
+    out_queues_arr.append(queue)
+
+merger -> 0:mdc_receiver:0 -> buf_out::Queue(size=16384) -> port0_out0
+
+#Explicit worker assignment
+port0_inc0.attach_task(wid=0)
+buf_in.attach_task(wid=1)
+
+#Attach all of the modules in ack path to one core
+for inc_socket in inc_socket_arr:
+    inc_socket.attach_task(wid=2)
+
+buf_out.attach_task(wid=2)
+
+for i in range(NUM_INSTANCES):
+    out_queues_arr[i].attach_task(wid=(3+i))
+

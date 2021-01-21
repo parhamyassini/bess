@@ -222,7 +222,6 @@ static inline int mdc_mod_entry(struct mdc_table *mdc_tbl, uint64_t addr,
             tbl[offset + tmp2 - 1].label = new_label;
             return 0;
         }
-
     } else {
         /* search buckets for first index */
         for (i = 0; i < mdc_tbl->bucket; i++) {
@@ -249,7 +248,6 @@ static inline int mdc_mod_entry(struct mdc_table *mdc_tbl, uint64_t addr,
 
     return ret;
 }
-
 
 //static int mdc_find_offset(struct mdc_table *mdc_tbl, uint64_t addr,
 //                    uint32_t *offset_out) {
@@ -398,7 +396,6 @@ static uint64_t mdc_addr_to_u64(char *addr) {
     return a | (b << 32);
 }
 
-
 static int parse_mac_addr(const char *str, char *addr) {
     if (str != nullptr && addr != nullptr) {
         int r = sscanf(str, "%2hhx:%2hhx:%2hhx:%2hhx:%2hhx:%2hhx", addr, addr + 1,
@@ -412,15 +409,19 @@ static int parse_mac_addr(const char *str, char *addr) {
     return 0;
 }
 
-
 /******************************************************************************/
 
 
 const Commands MdcReceiver::cmds = {
         {"add",   "MdcReceiverCommandAddArg",
-                              MODULE_CMD_FUNC(&MdcReceiver::CommandAdd), Command::THREAD_UNSAFE},
+                              MODULE_CMD_FUNC(&MdcReceiver::CommandAdd), 
+                                  Command::THREAD_UNSAFE},
         {"clear", "EmptyArg", MODULE_CMD_FUNC(&MdcReceiver::CommandClear),
                                                                          Command::THREAD_UNSAFE},
+        {"get_latency", "MdcReceiverCommandGetLatencyArg", MODULE_CMD_FUNC(&MdcReceiver::CommandGetLatency),
+                                                                         Command::THREAD_SAFE},
+        {"get_cycle", "MdcReceiverCommandGetCycleArg", MODULE_CMD_FUNC(&MdcReceiver::CommandGetCycle),
+                                                                         Command::THREAD_SAFE}
 };
 
 CommandResponse
@@ -429,12 +430,25 @@ MdcReceiver::Init(const sample::mdc_receiver::pb::MdcReceiverArg &arg) {
     int size = MDC_DEFAULT_TABLE_SIZE;
     int bucket = MDC_MAX_BUCKET_SIZE;
 
-    agent_id_ = arg.agent_id();
+    ip_encap_ = arg.ip_encap();
 
+    // Parses Agent ID
+    if(arg.agent_id() <= 0) {
+        return CommandFailure(-1, "Agent ID has to be a positive integer");
+    }
+    /* TODO @parham: Make sure we still use both agent_id and agent_label */
     if (arg.agent_label() <= 0) {
         return CommandFailure(-1, "Agent Label has to be a +ve integer");
     }
-    agent_label_ = arg.agent_label() << 24;
+
+    const std::string &switch_mac_str = arg.switch_mac();
+    const std::string &agent_mac_str = arg.agent_mac();
+
+    switch_mac_ = Ethernet::Address(switch_mac_str);
+    agent_mac_ = Ethernet::Address(agent_mac_str);
+
+    agent_id_ = arg.agent_id();
+    agent_label_ = arg.agent_label(); // << 24;
 
     // Initialize the table
     ret = mdc_init(&mdc_table_, size, bucket);
@@ -445,12 +459,49 @@ MdcReceiver::Init(const sample::mdc_receiver::pb::MdcReceiverArg &arg) {
                               size, bucket);
     }
     return CommandSuccess();
-
 }
 
 void MdcReceiver::DeInit() {
     mdc_deinit(&mdc_table_);
 }
+
+/**
+ * Returns the total time (in ns) spent for our lable and send algorithm. 
+ * Param: clear (bool), if this param is set, it will clear the counter after the call and else the number will be acummulated
+ */
+CommandResponse MdcReceiver::CommandGetLatency(const sample::mdc_receiver::pb::MdcReceiverCommandGetLatencyArg &arg) 
+{
+    sample::mdc_receiver::pb::MdcReceiverCommandGetLatencyResponse r;
+    r.set_total_time(total_time_);
+    r.set_packets(total_rec_pkts_);
+    if(arg.clear() == 1) {
+        total_time_ = 0;
+    }
+    return CommandSuccess(r);
+}
+
+/**
+ * Returns the total CPU cycles spent for our lable and send algorithm. 
+ * Param: clear (bool), if this param is set, it will clear the counter after the call and else the number will be acummulated
+ */
+CommandResponse MdcReceiver::CommandGetCycle(const sample::mdc_receiver::pb::MdcReceiverCommandGetCycleArg &arg) 
+{
+    sample::mdc_receiver::pb::MdcReceiverCommandGetCycleResponse r;
+    r.set_total_cycle(total_cycle_);
+    r.set_packets(total_rec_pkts_);
+    if(arg.clear() == 1) {
+        total_cycle_ = 0;
+        total_rec_pkts_ = 0;
+    }
+    return CommandSuccess(r);
+}
+
+/* TODO: @parham: is_active_agent_ is not used  
+CommandResponse CommandSetActiveAgent(
+        const sample::mdc_receiver::pb::MdcReceiverCommandSetActiveAgentArg &arg){
+    is_active_agent_ = arg.is_active_agent();
+}
+*/
 
 CommandResponse MdcReceiver::CommandAdd(
         const sample::mdc_receiver::pb::MdcReceiverCommandAddArg &arg) {
@@ -470,7 +521,7 @@ CommandResponse MdcReceiver::CommandAdd(
         if (parse_mac_addr(str_addr, addr) != 0) {
             return CommandFailure(EINVAL, "%s is not a proper mac address", str_addr);
         }
-
+	// std::cout << mdc_addr_to_u64(addr) << label << std::endl;
         int r = mdc_add_entry(&mdc_table_, mdc_addr_to_u64(addr), label);
         if (r == -EEXIST) {
             return CommandFailure(EEXIST, "MAC address '%s' already exist", str_addr);
@@ -479,6 +530,16 @@ CommandResponse MdcReceiver::CommandAdd(
         } else if (r != 0) {
             return CommandFailure(-r);
         }
+///*
+	mdc_label_t out_label1 = 0x00;
+    int ret1 = -1;
+    ret1 = mdc_find(&mdc_table_, 55465664714246, &out_label1);
+    if (ret1 != 0) {                                                                                                             
+        std::cout << ":(" << std::endl;
+        out_label1 = 0x00; 
+    }
+// std::cout << std::hex << out_label1 << std::dec << std::endl;
+//*/
     }
 
     return CommandSuccess();
@@ -488,134 +549,266 @@ CommandResponse MdcReceiver::CommandClear(const bess::pb::EmptyArg &) {
     return CommandSuccess();
 }
 
-void MdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
-    int cnt = batch->cnt();
-
-    for (int i = 0; i < cnt; i++) {
-        bess::Packet *pkt = batch->pkts()[i];
-        Ethernet *eth = pkt->head_data<Ethernet *>();
-
-        if (eth->ether_type == be16_t(Mdc::kDataLabeledType)) {
-            EmitPacket(ctx, pkt, 1);
-        } else if (eth->ether_type == be16_t(Mdc::kDataUnlabeledType)) {
-            // the data pkt needs to be labeled
-            be32_t *p = pkt->head_data<be32_t *>(sizeof(Ethernet));
-            mac_addr_t address = *(pkt->head_data<uint64_t *>()) & 0x0000ffffffffffff;
-            mdc_label_t out_label = 0x00;
-            int ret = mdc_find(&mdc_table_, address, &out_label);
-            if (ret != 0) {
-                out_label = 0x00;
+void MdcReceiver::LabelAndSendPacket(Context *ctx, bess::Packet *pkt, bool is_external){
+    // This is the dst_mac address from Ethernet header.
+    uint64_t start_ns = tsc_to_ns(rdtsc());
+    uint64_t start_tsc = rdtsc();
+    mac_addr_t address = *(pkt->head_data<uint64_t *>()) & 0x0000ffffffffffff;
+    mdc_label_t out_label = 0x50;
+    int ret = -1;
+    bool agent_is_only_recv = 0;
+    //std::cout << "Address: " << address << std::endl;
+    ret = mdc_find(&mdc_table_, address, &out_label);
+    if (ret != 0) {
+	    std::cout << ":(" << std::endl;
+        out_label = 0x00;
+    }
+    mdc_label_t tor_label = out_label & 0x000000ff; 
+    agent_is_only_recv = ((~agent_label_ & ~tor_label) == ~agent_label_);              
+    if((agent_id_ & tor_label) == agent_id_) { // Agent is in destination list
+        if (!agent_is_only_recv) { // Consume pkt
+            bess::Packet *newpkt = bess::Packet::copy(pkt);
+            if (newpkt) {
+                //total_frwrd_app_pkts++;
+                EmitPacket(ctx, newpkt, MDC_OUTPUT_INTERNAL);
+                // if(total_frwrd_app_pkts>=108295){
+                //     LOG(INFO) << "TEST PASS: Frwrd num correct";
+                // }
             }
-
-            bool agent_is_only_recv = (~agent_label_ & ~out_label) == ~agent_label_;
-
-            // If the Agent host has a receiver, copy the pkt and send it to Gate 1.
-            if ((agent_label_ & out_label) == agent_label_) {
-                if (!agent_is_only_recv) {
-                    bess::Packet *new_pkt = bess::Packet::copy(pkt);
-                    if (new_pkt) {
-                        EmitPacket(ctx, new_pkt, 1);
-                    }
-                } else {
-                    EmitPacket(ctx, pkt, 1);
-                }
+            else {
+                LOG(INFO)<< "THIS SHOUDLN'T HAPPEN! PKT NULL!";
             }
-
-            if (agent_is_only_recv) {
-                continue;
-            }
-
-            // Label the pkt, make sure to remove the agent ID label from the final label
-            *p = *p | (be32_t(out_label & ~agent_label_) >> 16);
-            eth->ether_type = be16_t(Mdc::kDataLabeledType);
-            EmitPacket(ctx, pkt, 0);
-        } else if (eth->ether_type == be16_t(Mdc::kControlSetAgentType)) {
-            DropPacket(ctx, pkt);
-        } else if (eth->ether_type == be16_t(Mdc::kControlPingType)) {
-            // A ping pkt coming from generator
-            // We need to make sure the mDC Agent still sends pkts even if ToR had failed, in case the ToR comes back!
-            // "100" represents the rate at which the Agent resends the ping pkts if ToR fails
-            // This value needs to be adaptive or configured
-            if (emit_ping_pkt_ || gen_ping_pkts_count_ == 100) {
-                EmitPacket(ctx, pkt, 0);
-                gen_ping_pkts_count_ = 0;
-                emit_ping_pkt_ = false;
-            }
-            gen_ping_pkts_count_ += 1;
-        } else if (eth->ether_type == be16_t(Mdc::kControlPongType)) {
-            emit_ping_pkt_ = true;
-        } else if (eth->ether_type == be16_t(Mdc::kControlSyncStateType)) {
-            // sync-state pkt
-            int ret = -1;
-            mdc_label_t tmp_label;
-            be32_t *p = pkt->head_data<be32_t *>(sizeof(Ethernet));
-            mac_addr_t address = *(pkt->head_data<uint64_t *>()) & 0x0000ffffffffffff;
-            mdc_label_t new_label = p->raw_value();
-
-            // if the session is already stored, modify it. Else, add it to the table.
-            if (mdc_find(&mdc_table_, address, &tmp_label) == 0) {
-                ret = mdc_mod_entry(&mdc_table_, address, new_label);
-            } else {
-                ret = mdc_add_entry(&mdc_table_, address, new_label);
-            }
-            if (ret == 0) {
-                // send the pkt back to the switch
-                // set the label to 0x00000000
-                *p = *p & be32_t(0x00000000);
-                eth->ether_type = be16_t(Mdc::kControlSyncStateDoneType);
-                // set the current Agent ID
-                *p = *p | be32_t(agent_id_);
-                EmitPacket(ctx, pkt, 0);
-            } else {
-                DropPacket(ctx, pkt);
-            }
-        } else if (eth->ether_type == be16_t(Mdc::kControlSyncStateDoneType)) {
-            DropPacket(ctx, pkt);
         } else {
-            DropPacket(ctx, pkt);
+                EmitPacket(ctx, pkt, MDC_OUTPUT_INTERNAL);
         }
+    }
+    //std::cout << "LABEL" << out_label << std::endl;
+    // std::cout << (~agent_label_ & ~tor_label) << std::endl;
+    // std::cout << ~agent_label_  << std::endl;
+    /* TODO @parham: Fix this for sender (not active agent) it is always true */
+    if (agent_is_only_recv && is_external) {
+       return;
+    }
 
-//        // Data pkts
-//        if (eth->ether_type == be16_t(Mdc::kDataType)) {
-//            be32_t *p = pkt->head_data<be32_t *>(sizeof(Ethernet));
-//            uint8_t mode = p->raw_value() & 0x000000ff;
-////            std::cout << std::hex << static_cast<int>(mode) << std::endl;
-//
-//            if (mode == 0x00) {
-//                // If mode is 0x00, the data pkt needs to be labeled
-//                mdc_label_t out_label = 0x0a0b0c;
-//                int ret = mdc_find(&mdc_table_,
-//                                   *(pkt->head_data<uint64_t *>()) & 0x0000ffffffffffff,
-//                                   &out_label);
-//                if (ret != 0) {
-//                    out_label = 0x0a0b0c;
-//                }
-//
-//                // If the Agent host has a receiver, copy the pkt and send it to Gate 1.
-//                if((agent_id_ & out_label) == agent_id_) {
-//                    bess::Packet *newpkt = bess::Packet::copy(pkt);
-//                    if (newpkt) {
-//                        EmitPacket(ctx, newpkt, 1);
-//                    }
-//                }
-//                // TODO: if agent is the only receiver, don't emit pkt again
-//
-//                // Label the pkt, make sure to remove the agent ID label from the final label
-//                *p = (be32_t(0xff) << 24) | be32_t(out_label & ~agent_id_);
-//                EmitPacket(ctx, pkt, 0);
-//            }
-//            //TODO receive the pkt here
-//        } else if (eth->ether_type == be16_t(Mdc::kControlStateType)) {
-//            // TODO: update state
-//            EmitPacket(ctx, pkt, 0);
-//        } else if (eth->ether_type == be16_t(Mdc::kControlHealthType)) {
-//            EmitPacket(ctx, pkt, 2);
-//        } else {
-//            // non-MDC packets are dropped
-//            DropPacket(ctx, pkt);
-//            continue;
-//        }
+    be64_t *p1 = pkt->head_data<be64_t *>(sizeof(Ethernet));
+    if(!ip_encap_) {
+        // label the pkt and remove agent_label_ from out_label
+        *p1 = *p1 | (be64_t(out_label & ~agent_label_));
+        *p1 = *p1 & be64_t(0x00ffffffffffffff); // clear type bits
+        
+        /* 
+         Set Labled (0x02)  and unlabled (0x01) for pkts 
+         */
+        if(tor_label == 0x00){
+            *p1 = *p1 | be64_t(0x0100000000000000); 
+        } else {
+            *p1 = *p1 | be64_t(0x0200000000000000); 
+        }
+    } else {
+        /* 
+         Set Labled (0x02)  and unlabled (0x01) for pkts 
+        */
+        if(tor_label == 0x00){
+            *p1 = *p1 & be64_t(0xffffffff00ffffff); // clear type bits
+            *p1 = *p1 | be64_t(0x0000000001000000); // Set 0x01
+        } else {
+            *p1 = *p1 & be64_t(0xffffffff00ffffff); // clear type bits
+            *p1 = *p1 | be64_t(0x0000000002000000); // Set 0x02
+        }
+        be64_t *p2 = p1 + 1;
+        *p2 = *p2 | ((be64_t(out_label & ~agent_label_)) << 32);
+    }
+    uint64_t end_tsc = rdtsc() - start_tsc;
+    uint64_t end_ns = tsc_to_ns(rdtsc()) - start_ns;
+    //total_tor_pkt ++;
+    // if(total_tor_pkt>=108295) {
+    //     LOG(INFO) << "TEST PASS: To TOR pkt num correct";
+    // }
+    //LOG(INFO) << "EMITTED TOTAL: " << total_pkt_debug; 
+    //LOG(INFO) << "Emitted packet "; 
+    //LOG(INFO) << "total len: " << pkt->total_len(); 
+
+    EmitPacket(ctx, pkt, MDC_OUTPUT_TOR);
+
+    total_time_ += end_ns;
+    total_cycle_ += end_tsc;
+    total_rec_pkts_ += 1;
+
+    if (unlikely(!p_latency_first_pkt_rec_ns_)) {
+        p_latency_first_pkt_rec_ns_ = start_ns;
+    }
+
+    if (p_latency_enabled_) {
+        // Pkt received
+        p_latency_rtt_hist_.Insert(end_tsc);
+        // a hack to collect results
+        if (p_latency_first_pkt_rec_ns_ && (start_ns - p_latency_first_pkt_rec_ns_) >= 60'000'000'000) {
+            p_latency_enabled_ = false;
+            std::vector<double> latency_percentiles{50, 95, 99, 99.9, 99.99};
+            const auto &rtt = p_latency_rtt_hist_.Summarize(latency_percentiles);
+            std::cout << rtt.avg;
+            std::cout << rtt.min;
+            std::cout << rtt.max;
+            for (int percentile_value : rtt.percentile_values)
+                std::cout << percentile_value;
+        }
     }
 }
 
-ADD_MODULE(MdcReceiver, "mdc_receiver", "processing MDC pkts")
+void MdcReceiver::DoProcessAppBatch(Context *ctx, bess::PacketBatch *batch) {
+    /* Process internal packets */
+    int cnt = batch->cnt();
+    //LOG(INFO) << "GOT BATCH OF : " << cnt;
+    for (int i = 0; i < cnt; i++) {
+        bess::Packet *pkt = batch->pkts()[i];
+        LabelAndSendPacket(ctx, pkt, 0);
+    }
+}
+
+void MdcReceiver::DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch) {
+    /* Process external packets */
+    // TODO: All Sync-related messages aren't tested yet.
+    int cnt = batch->cnt();
+
+    for (int i = 0; i < cnt; i++) {
+        
+        bess::Packet *pkt = batch->pkts()[i];
+        //LOG(INFO)<< "RECEIVED LEN: " << pkt->total_len();
+        be64_t *p = pkt->head_data<be64_t *>(sizeof(Ethernet));
+        uint8_t mdc_type = p->raw_value() & MDC_PKT_TYPE_MASK;
+        if(ip_encap_) {
+            mdc_type = (p->raw_value() & MDC_PKT_IP_TYPE_MASK) >> 32;
+        }
+
+	// std::cout << ((p->raw_value() & MDC_PKT_IP_TYPE_MASK) >> 32) << std::endl;
+	// std::cout << std::hex << *p << std::dec << std::endl;
+
+        int ret = -1;
+        mac_addr_t address;
+        mdc_label_t tmp_label, new_label;
+
+        switch(mdc_type) {
+            case MDC_TYPE_UNLABELED: // It is a data pkt and needs to be labeled
+                LabelAndSendPacket(ctx, pkt, 1);
+                break;
+            case MDC_TYPE_LABELED: // It's a data pkt and labled so send to FileWriter module
+                EmitPacket(ctx, pkt, MDC_OUTPUT_INTERNAL);
+                //LOG(INFO)<< "Labled Packet, sending to filewriter";
+                break;
+            case MDC_TYPE_PONG:
+                emit_ping_pkt_ = true;
+                LOG(INFO)<< "Dropping Packet!";
+		        DropPacket(ctx, pkt);
+                break;
+            case MDC_TYPE_PING:
+                // A ping pkt coming from generator
+                // We need to make sure the mDC Agent still sends pkts even if ToR had failed, in case the ToR comes back!
+                // "100" represents the rate at which the Agent resends the ping pkts if ToR fails
+                // This value needs to be adaptive or configured
+                if (emit_ping_pkt_ || gen_ping_pkts_count_ == 100) {
+                    EmitPacket(ctx, pkt, MDC_OUTPUT_TOR);
+                    gen_ping_pkts_count_ = 0;
+                    emit_ping_pkt_ = false;
+                }
+                gen_ping_pkts_count_ += 1;
+                break;
+            case MDC_TYPE_SYNC_STATE:
+                new_label = (p->raw_value() & MDC_PKT_LABEL_MASK) >> 32;
+                address = (p->raw_value() & MDC_PKT_ADDRESS_MASK) >> 16;
+                // if the session is already stored, modify it. Else, add it to the table.
+                if (mdc_find(&mdc_table_, address, &tmp_label) == 0) {
+                    ret = mdc_mod_entry(&mdc_table_, address, new_label);
+                } else {
+                    ret = mdc_add_entry(&mdc_table_, address, new_label);
+                }
+                if (ret == 0) {
+                    // send the pkt back to the switch
+                    // set the label to 0x00000000
+                    *p = *p & be64_t(0xffffffff00000000);
+                    /* 
+                     TODO: This line works for changing 0xf2 to 0xf3 but if convention changed,
+                     bitwise or doesn't always set the desired value 
+                     */
+                    // set the mdc_type to 0xf3
+                    *p = *p | be64_t(0xf300000000000000);
+                    // set the current Agent ID
+                    *p = *p | (be64_t(agent_id_) << 48); // 6 byte shift since "type" is before agent id
+                    EmitPacket(ctx, pkt, MDC_OUTPUT_TOR);
+                } else {
+                    LOG(INFO) << "Dropping Packet!";
+                    DropPacket(ctx, pkt);
+                }
+                break;
+            default:
+                LOG(INFO) << "Dropping Packet!";
+                DropPacket(ctx, pkt);
+                break;
+        }
+    }
+}
+
+void MdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
+    gate_idx_t incoming_gate = ctx->current_igate;
+    //total_rec_pkts += batch->cnt();
+    // if(total_rec_pkts>=108295) {
+    //     LOG(INFO) << "TEST PASS: tot rec pkts correct";
+    // }
+    if (incoming_gate == MDC_INPUT_APP) {
+        //LOG(INFO)<<"APP";
+        DoProcessAppBatch(ctx, batch);
+    } else {
+        //LOG(INFO)<<"EXT";
+        DoProcessExtBatch(ctx, batch);
+    }
+
+//     int cnt = batch->cnt();
+
+//     for (int i = 0; i < cnt; i++) {
+//         bess::Packet *pkt = batch->pkts()[i];
+//         Ethernet *eth = pkt->head_data<Ethernet *>();
+
+//         // Data pkts
+//         if (eth->ether_type == be16_t(Mdc::kDataType)) {
+//             be32_t *p = pkt->head_data<be32_t *>(sizeof(Ethernet));
+//             uint8_t mode = p->raw_value() & 0x000000ff;
+// //            std::cout << std::hex << static_cast<int>(mode) << std::endl;
+
+//             if (mode == 0x00) {
+//                 // If mode is 0x00, the data pkt needs to be labeled
+//                 mdc_label_t out_label = 0x0a0b0c;
+//                 int ret = mdc_find(&mdc_table_,
+//                                    *(pkt->head_data<uint64_t *>()) & 0x0000ffffffffffff,
+//                                    &out_label);
+//                 if (ret != 0) {
+//                     out_label = 0x0a0b0c;
+//                 }
+
+//                 // If the Agent host has a receiver, copy the pkt and send it to Gate 1.
+//                 if((agent_id_ & out_label) == agent_id_) {
+//                     bess::Packet *newpkt = bess::Packet::copy(pkt);
+//                     if (newpkt) {
+//                         EmitPacket(ctx, newpkt, 1);
+//                     }
+//                 }
+//                 // TODO: if agent is the only receiver, don't emit pkt again
+
+//                 // Label the pkt, make sure to remove the agent ID label from the final label
+//                 *p = (be32_t(0xff) << 24) | be32_t(out_label & ~agent_id_);
+//                 EmitPacket(ctx, pkt, 0);
+//             }
+//             //TODO receive the pkt here
+//         } else if (eth->ether_type == be16_t(Mdc::kControlStateType)) {
+//             // TODO: update state
+//             EmitPacket(ctx, pkt, 0);
+//         } else if (eth->ether_type == be16_t(Mdc::kControlHealthType)) {
+//             EmitPacket(ctx, pkt, 2);
+//         } else {
+//             // non-MDC packets are dropped
+//             DropPacket(ctx, pkt);
+//             continue;
+//         }
+//     }
+}
+
+ADD_MODULE(MdcReceiver, "mdc_receiver",
+           "processing MDC pkts")

@@ -29,74 +29,23 @@
 
 syntax = "proto3";
 
-package sample.mdc_receiver.pb;
+package sample.orca_throughput.pb;
 
 /**
  * The function `clear()` for SequentialUpdate takes no parameters and clears all
  * state in the module.
  */
-message MdcReceiverCommandClearArg {
+message OrcaThroughputCommandClearArg {
 }
 
-/**
- * The MdcReceiver module adds/maintains a list of (MAC address, label) tuples
- *
- * __Input Gates__: 2
- * __Output Gates__: 3
- */
-message MdcReceiverCommandAddArg {
-  /**
-   *
-   */
-  message Entry {
-    string addr = 1; /// The MAC address to match
-    uint32 label = 2; ///
-  }
-  repeated Entry entries = 1; /// A list of MACLabel entries.
-}
-
-/**
- * The SequentialUpdate module rewrites a specified field (`offset` and `size`) in a packet
- * with a sequentially increased value from a specified min to max values.
- *
- * __Input Gates__: 1
- * __Output Gates__: 1
- */
-message MdcReceiverArg {
-  uint32 agent_id = 1; /// Agent ID
-  uint32 agent_label = 2; /// Agent Label
-  string switch_mac = 3;
-  string agent_mac = 4; /// The MAC address
-  bool ip_encap = 5;
-}
-
-/**
- * For reading the total time spent inside the module from the bess script
- * If clear is True, after each call the timer will reset otherwise it returns the cumulative processing time of module
- */
-message MdcReceiverCommandGetLatencyArg{
+message OrcaThroughputCommandGetLatestArg{
   bool clear = 1;
 }
 
-message MdcReceiverCommandGetLatencyResponse {
-  uint64 total_time = 1;
+message OrcaThroughputCommandGetLatestResponse {
+  uint64 bytes = 1;
   uint64 packets = 2;
+  uint64 timestamp = 3;
 }
 
 
-message MdcReceiverCommandGetCycleArg{
-  bool clear = 1;
-}
-
-message MdcReceiverCommandGetCycleResponse {
-  uint64 total_cycle = 1;
-  uint64 packets = 2;
-}
-
-
-/**
-  * Currently not using this API
-message MdcReceiverCommandSetActiveAgentArg{
-  bool is_active_agent = 1;
-}
-*/

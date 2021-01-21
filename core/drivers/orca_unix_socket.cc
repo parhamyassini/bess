@@ -34,9 +34,31 @@
 
 #include <cerrno>
 #include <cstring>
-#include <iostream>
 
-#include "unix_socket.h"
+#include "orca_unix_socket.h"
+#include "../modules/timestamp.h"
+
+static inline void unix_socket_timestamp_packet(bess::Packet *pkt, size_t offset,
+                                    uint64_t time) {
+  Timestamp::MarkerType *marker;
+  uint64_t *ts;
+
+  const size_t kStampSize = sizeof(*marker) + sizeof(*ts);
+  size_t room = pkt->data_len() - offset;
+
+  if (room < kStampSize) {
+    void *ret = pkt->append(kStampSize - room);
+    if (!ret) {
+      // not enough tailroom for timestamp. give up
+      return;
+    }
+  }
+
+  marker = pkt->head_data<Timestamp::MarkerType *>(offset);
+  *marker = Timestamp::kMarker;
+  ts = reinterpret_cast<uint64_t *>(marker + 1);
+  *ts = time;
+}
 
 /*
  * Loop runner for accept calls.
@@ -44,7 +66,7 @@
  * Note that all socket operations are run non-blocking, so that
  * the only place we block is in the ppoll() system call.
  */
-void UnixSocketAcceptThread::Run() {
+void OrcaUnixSocketAcceptThread::Run() {
   struct pollfd fds[2];
   memset(fds, 0, sizeof(fds));
   fds[0].fd = owner_->listen_fd_;
@@ -77,7 +99,7 @@ void UnixSocketAcceptThread::Run() {
       }
       if (fd < 0) {
         PLOG(ERROR) << "accept4()";
-      } else if (owner_->client_fd_ != UnixSocketPort::kNotConnectedFd) {
+      } else if (owner_->client_fd_ != OrcaUnixSocketPort::kNotConnectedFd) {
         LOG(WARNING) << "Ignoring additional client\n";
         close(fd);
       } else {
@@ -91,13 +113,41 @@ void UnixSocketAcceptThread::Run() {
     } else if (fds[1].revents & (POLLRDHUP | POLLHUP)) {
       // connection dropped by client
       int fd = owner_->client_fd_;
-      owner_->client_fd_ = UnixSocketPort::kNotConnectedFd;
+      owner_->client_fd_ = OrcaUnixSocketPort::kNotConnectedFd;
       close(fd);
     }
   }
 }
 
-CommandResponse UnixSocketPort::Init(const bess::pb::UnixSocketPortArg &arg) {
+void OrcaUnixSocketPort::ReplenishRecvVector(int cnt) {
+  DCHECK_LE(cnt, bess::PacketBatch::kMaxBurst);
+  bool allocated =
+      current_worker.packet_pool()->AllocBulk(pkt_recv_vector_.data(), cnt);
+  for (int i = 0; i < cnt; i++) {
+    if (allocated) {
+      bess::utils::Copy(pkt_recv_vector_[i]->data(), templ_, h_size_);
+      recv_iovecs_[i] = {.iov_base = pkt_recv_vector_[i]->data() + h_size_,
+                         .iov_len = (packet_size_ - h_size_)};
+    } else {
+      // vectors can have holes, it will just drop the packet
+      recv_iovecs_[i] = {.iov_base = nullptr, .iov_len = 0};
+    }
+  }
+}
+
+CommandResponse OrcaUnixSocketPort::Init(const bess::pb::OrcaUnixSocketPortArg &arg) {
+  LOG(INFO) << "This is the Orca socket module init";
+  LOG(INFO) << "Configured template size: " << arg.template_().length();
+  h_size_ = arg.template_().length();
+  enable_time_stamp_ = arg.enable_time_stamp();
+  packet_size_ = arg.packet_size();
+  if(h_size_ > PACKET_HEADER_SIZE){
+        LOG(INFO) << "Packet header too larg";
+        return CommandFailure(EINVAL, "Template too large");
+  }
+  bess::utils::Copy(templ_, (const char*)arg.template_().c_str(), h_size_);
+  LOG(INFO) << "Got template of: \"" << std::hex << templ_ << "\"";
+
   const std::string path = arg.path();
   int num_txq = num_queues[PACKET_DIR_OUT];
   int num_rxq = num_queues[PACKET_DIR_INC];
@@ -116,7 +166,7 @@ CommandResponse UnixSocketPort::Init(const bess::pb::UnixSocketPortArg &arg) {
 
   confirm_connect_ = arg.confirm_connect();
 
-  listen_fd_ = socket(AF_UNIX, SOCK_SEQPACKET, 0);
+  listen_fd_ = socket(AF_UNIX, SOCK_STREAM, 0);
   if (listen_fd_ < 0) {
     DeInit();
     return CommandFailure(errno, "socket(AF_UNIX) failed");
@@ -159,10 +209,25 @@ CommandResponse UnixSocketPort::Init(const bess::pb::UnixSocketPortArg &arg) {
     return CommandFailure(errno, "unable to start accept thread");
   }
 
+  for (size_t i = 0; i < bess::PacketBatch::kMaxBurst; i++) {
+    recv_vector_[i] = {.msg_hdr = {.msg_name = nullptr,
+                                   .msg_namelen = 0,
+                                   .msg_iov = &recv_iovecs_[i],
+                                   .msg_iovlen = 1,
+                                   .msg_control = nullptr,
+                                   .msg_controllen = 0,
+                                   .msg_flags = 0},
+                       .msg_len = 0};
+  }
+
+  recv_iovecs_.fill({.iov_base = nullptr, .iov_len = 0});
+  pkt_recv_vector_.fill(nullptr);
+  ReplenishRecvVector(bess::PacketBatch::kMaxBurst);
+
   return CommandSuccess();
 }
 
-void UnixSocketPort::DeInit() {
+void OrcaUnixSocketPort::DeInit() {
   // End thread and wait for it (no-op if never started).
   accept_thread_.Terminate();
 
@@ -172,11 +237,15 @@ void UnixSocketPort::DeInit() {
   if (client_fd_ != kNotConnectedFd) {
     close(client_fd_);
   }
+
+  for (auto *pkt : pkt_recv_vector_) {
+    bess::Packet::Free(pkt);
+  }
 }
 
-int UnixSocketPort::RecvPackets(queue_t qid, bess::Packet **pkts, int cnt) {
+int OrcaUnixSocketPort::RecvPackets(queue_t qid, bess::Packet **pkts, int cnt) {
   int client_fd = client_fd_;
-
+  uint64_t time_stamp_ns;
   DCHECK_EQ(qid, 0);
 
   if (client_fd == kNotConnectedFd) {
@@ -185,41 +254,36 @@ int UnixSocketPort::RecvPackets(queue_t qid, bess::Packet **pkts, int cnt) {
   }
 
   uint64_t now_ns = current_worker.current_tsc();
+  
   if (now_ns - last_idle_ns_ < min_rx_interval_ns_) {
     return 0;
   }
 
   int received = 0;
-  while (received < cnt) {
-    bess::Packet *pkt = current_worker.packet_pool()->Alloc();
 
-    if (!pkt) {
+  while (received < cnt) {
+    int ret =
+        recvmmsg(client_fd, recv_vector_.data(), cnt - received, 0, nullptr);
+
+    if (ret > 0) {
+      for (int i = 0; i < ret; i++) {
+        if ((recv_iovecs_[i].iov_base != nullptr) &&
+            (recv_vector_[i].msg_len > 0)) {
+          pkt_recv_vector_[i]->append(recv_vector_[i].msg_len+h_size_);
+          if(enable_time_stamp_) {
+            time_stamp_ns = tsc_to_ns(rdtsc());
+            // A hack to put the time stamp but not increase the packet len 
+            // (receivers will read the time stamp as data)
+            size_t offset = packet_size_ - (sizeof(Timestamp::kMarker) + sizeof(time_stamp_ns));
+            unix_socket_timestamp_packet(pkt_recv_vector_[i], offset, time_stamp_ns);
+          }
+          pkts[received++] = pkt_recv_vector_[i];
+        }
+      }
+      ReplenishRecvVector(ret);
+    } else {
       break;
     }
-
-    // Datagrams larger than 2KB will be truncated.
-    int ret = recv(client_fd, pkt->data(), SNBUF_DATA, 0);
-    //LOG(INFO) << "Unix recv pkt: " << pkt->data();
-    if (ret > 0) {
-      pkt->append(ret);
-      pkts[received++] = pkt;
-      continue;
-    }
-
-    bess::Packet::Free(pkt);
-
-    if (ret < 0) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EBADF) {
-        break;
-      }
-
-      if (errno == EINTR) {
-        continue;
-      }
-    }
-
-    // Connection closed.
-    break;
   }
 
   last_idle_ns_ = (received == 0) ? now_ns : 0;
@@ -227,50 +291,60 @@ int UnixSocketPort::RecvPackets(queue_t qid, bess::Packet **pkts, int cnt) {
   return received;
 }
 
-int UnixSocketPort::SendPackets(queue_t qid, bess::Packet **pkts, int cnt) {
+int OrcaUnixSocketPort::SendPackets(queue_t qid, bess::Packet **pkts, int cnt) {
+  int i;
   int sent = 0;
   int client_fd = client_fd_;
-  // LOG(INFO) << "Unix SendPackets, cnd: " << cnt << " fd: " << client_fd;
 
   DCHECK_EQ(qid, 0);
 
   if (client_fd == kNotConnectedFd) {
     return 0;
   }
-
-  for (int i = 0; i < cnt; i++) {
+  size_t iovec_idx = 0;
+  for (i = 0; i < cnt; i++) {
     bess::Packet *pkt = pkts[i];
-
+    pkt->adj(h_size_);
     int nb_segs = pkt->nb_segs();
-    struct iovec iov[nb_segs];
-
-    struct msghdr msg = msghdr();
-    msg.msg_iov = iov;
-    msg.msg_iovlen = nb_segs;
-
-    ssize_t ret;
 
     for (int j = 0; j < nb_segs; j++) {
-      iov[j].iov_base = pkt->head_data();
-      iov[j].iov_len = pkt->head_len();
-      pkt = pkt->next();      
+      if (iovec_idx >= send_iovecs_.size()) {
+        break;
+      }
+      send_iovecs_[iovec_idx++] = {
+          .iov_base = pkt->head_data(),
+          .iov_len = static_cast<size_t>(pkt->head_len())};
+      pkt = pkt->next();
     }
 
-    // LOG(INFO) << "Unix send pkts: " << (char*)iov[0].iov_base;//This is the one that's useful for debugging
-    ret = sendmsg(client_fd, &msg, 0);
-    if (ret < 0) {
-      break;
-    }
-
-    sent++;
+    send_vector_[i] = {
+        .msg_hdr = {.msg_name = nullptr,
+                    .msg_namelen = 0,
+                    .msg_iov = &send_iovecs_[iovec_idx - nb_segs],
+                    .msg_iovlen = static_cast<size_t>(nb_segs),
+                    .msg_control = nullptr,
+                    .msg_controllen = 0,
+                    .msg_flags = 0},
+        .msg_len = 0};
   }
 
-  if (sent) {
-    bess::Packet::Free(pkts, sent);
+  if (!send_vector_.empty()) {
+    for (int j = 0; j < SEND_RETRY_COUNT; j++){
+      sent += sendmmsg(client_fd, send_vector_.data() + sent*sizeof(mmsghdr), i - sent, 0);
+      if(sent >= i){
+        break;
+      }
+    }
+    if (sent > 0) {
+      bess::Packet::Free(pkts, sent);
+    } else {
+      sent = 0;
+    }
   }
 
   return sent;
 }
 
-ADD_DRIVER(UnixSocketPort, "unix_port",
+ADD_DRIVER(OrcaUnixSocketPort, "orca_unix_port",
            "packet exchange via a UNIX domain socket")
+

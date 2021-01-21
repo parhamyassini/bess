@@ -31,12 +31,19 @@
 #include <glog/logging.h>
 #include <poll.h>
 #include <signal.h>
+#include <sys/stat.h>
+#include <stdint.h>
+#include <endian.h>
+#include <arpa/inet.h>
 
 #include <cerrno>
 #include <cstring>
 #include <iostream>
 
-#include "unix_socket.h"
+#include "unix_stream_socket.h"
+
+#define MAX_PKT_LEN (1500)
+#define HDR_LEN_PARAM_SIZE (sizeof(int32_t))
 
 /*
  * Loop runner for accept calls.
@@ -44,7 +51,7 @@
  * Note that all socket operations are run non-blocking, so that
  * the only place we block is in the ppoll() system call.
  */
-void UnixSocketAcceptThread::Run() {
+void UnixStreamSocketAcceptThread::Run() {
   struct pollfd fds[2];
   memset(fds, 0, sizeof(fds));
   fds[0].fd = owner_->listen_fd_;
@@ -77,7 +84,7 @@ void UnixSocketAcceptThread::Run() {
       }
       if (fd < 0) {
         PLOG(ERROR) << "accept4()";
-      } else if (owner_->client_fd_ != UnixSocketPort::kNotConnectedFd) {
+      } else if (owner_->client_fd_ != UnixStreamSocketPort::kNotConnectedFd) {
         LOG(WARNING) << "Ignoring additional client\n";
         close(fd);
       } else {
@@ -91,13 +98,13 @@ void UnixSocketAcceptThread::Run() {
     } else if (fds[1].revents & (POLLRDHUP | POLLHUP)) {
       // connection dropped by client
       int fd = owner_->client_fd_;
-      owner_->client_fd_ = UnixSocketPort::kNotConnectedFd;
+      owner_->client_fd_ = UnixStreamSocketPort::kNotConnectedFd;
       close(fd);
     }
   }
 }
 
-CommandResponse UnixSocketPort::Init(const bess::pb::UnixSocketPortArg &arg) {
+CommandResponse UnixStreamSocketPort::Init(const bess::pb::UnixStreamSocketPortArg &arg) {
   const std::string path = arg.path();
   int num_txq = num_queues[PACKET_DIR_OUT];
   int num_rxq = num_queues[PACKET_DIR_INC];
@@ -116,7 +123,7 @@ CommandResponse UnixSocketPort::Init(const bess::pb::UnixSocketPortArg &arg) {
 
   confirm_connect_ = arg.confirm_connect();
 
-  listen_fd_ = socket(AF_UNIX, SOCK_SEQPACKET, 0);
+  listen_fd_ = socket(AF_UNIX, SOCK_STREAM, 0);
   if (listen_fd_ < 0) {
     DeInit();
     return CommandFailure(errno, "socket(AF_UNIX) failed");
@@ -159,10 +166,15 @@ CommandResponse UnixSocketPort::Init(const bess::pb::UnixSocketPortArg &arg) {
     return CommandFailure(errno, "unable to start accept thread");
   }
 
+  if(chmod(addr_.sun_path, 0777) != 0){
+    DeInit();
+    return CommandFailure(errno, "unable to chmod file");
+  }
+
   return CommandSuccess();
 }
 
-void UnixSocketPort::DeInit() {
+void UnixStreamSocketPort::DeInit() {
   // End thread and wait for it (no-op if never started).
   accept_thread_.Terminate();
 
@@ -174,8 +186,9 @@ void UnixSocketPort::DeInit() {
   }
 }
 
-int UnixSocketPort::RecvPackets(queue_t qid, bess::Packet **pkts, int cnt) {
-  int client_fd = client_fd_;
+int UnixStreamSocketPort::RecvPackets(queue_t qid,__attribute__((unused)) bess::Packet **pkts, int cnt) {
+
+  int client_fd = client_fd_;//This is always the same
 
   DCHECK_EQ(qid, 0);
 
@@ -190,36 +203,78 @@ int UnixSocketPort::RecvPackets(queue_t qid, bess::Packet **pkts, int cnt) {
   }
 
   int received = 0;
-  while (received < cnt) {
+  if (cnt > 0){
     bess::Packet *pkt = current_worker.packet_pool()->Alloc();
 
     if (!pkt) {
-      break;
+      return 0;
     }
 
     // Datagrams larger than 2KB will be truncated.
-    int ret = recv(client_fd, pkt->data(), SNBUF_DATA, 0);
-    //LOG(INFO) << "Unix recv pkt: " << pkt->data();
-    if (ret > 0) {
-      pkt->append(ret);
-      pkts[received++] = pkt;
-      continue;
-    }
 
-    bess::Packet::Free(pkt);
+    //uint8_t hdrLenBuf[HDR_LEN_PARAM_SIZE] = {0};
+    int ret;
+
+    static uint8_t packetDataBuf[MAX_PKT_LEN];
+    static size_t remainingBytes = (size_t)0u;
+    static size_t bufPosition = (size_t)0u;
+    size_t readSize = (bufPosition > 0) ? remainingBytes : HDR_LEN_PARAM_SIZE;
+
+    while ((ret = recv(client_fd, packetDataBuf + bufPosition, readSize, 0)) > 0) {
+      if(bufPosition == 0u){
+        bess::utils::be32_t len = *((bess::utils::be32_t*)packetDataBuf);
+        remainingBytes = len.value();
+
+
+        if(remainingBytes > MAX_PKT_LEN){
+          LOG(ERROR) << "Incoming data too large for BESS packet " << remainingBytes << " > " << MAX_PKT_LEN;
+        return 0;
+        }
+      }
+      else
+      {
+      }
+
+      remainingBytes -= ret;
+      bufPosition += ret;
+
+
+      //LOG(INFO) << "Message ret: " << ret << " remaining bytes: " << remainingBytes << " position: " << bufPosition;
+
+
+
+      if(remainingBytes == 0){
+        memcpy(pkt->data(), packetDataBuf, bufPosition);
+
+        pkt->append(bufPosition);
+        //LOG(INFO) << pkt->Dump();
+        pkts[received++] = pkt;
+        ////continue;
+
+        bufPosition = 0;
+      }
+
+      readSize = (bufPosition > 0) ? remainingBytes : HDR_LEN_PARAM_SIZE;
+    }
 
     if (ret < 0) {
       if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EBADF) {
-        break;
+        //break;
       }
 
       if (errno == EINTR) {
-        continue;
+        //continue;
       }
     }
 
-    // Connection closed.
-    break;
+    if(received == 0){
+
+      bess::Packet::Free(pkt);
+
+
+      // Connection closed.
+      //break;
+    }
   }
 
   last_idle_ns_ = (received == 0) ? now_ns : 0;
@@ -227,10 +282,9 @@ int UnixSocketPort::RecvPackets(queue_t qid, bess::Packet **pkts, int cnt) {
   return received;
 }
 
-int UnixSocketPort::SendPackets(queue_t qid, bess::Packet **pkts, int cnt) {
+int UnixStreamSocketPort::SendPackets(queue_t qid, bess::Packet **pkts, int cnt) {
   int sent = 0;
   int client_fd = client_fd_;
-  // LOG(INFO) << "Unix SendPackets, cnd: " << cnt << " fd: " << client_fd;
 
   DCHECK_EQ(qid, 0);
 
@@ -256,7 +310,6 @@ int UnixSocketPort::SendPackets(queue_t qid, bess::Packet **pkts, int cnt) {
       pkt = pkt->next();      
     }
 
-    // LOG(INFO) << "Unix send pkts: " << (char*)iov[0].iov_base;//This is the one that's useful for debugging
     ret = sendmsg(client_fd, &msg, 0);
     if (ret < 0) {
       break;
@@ -272,5 +325,5 @@ int UnixSocketPort::SendPackets(queue_t qid, bess::Packet **pkts, int cnt) {
   return sent;
 }
 
-ADD_DRIVER(UnixSocketPort, "unix_port",
-           "packet exchange via a UNIX domain socket")
+ADD_DRIVER(UnixStreamSocketPort, "unix_stream_socket_port",
+           "packet exchange via a TCP UNIX domain socket")

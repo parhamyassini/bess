@@ -28,55 +28,67 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-#include "aws_mdc_throughput.h"
+#include "orca_throughput.h"
 
-
-const Commands AwsMdcThroughput::cmds = {
-        {"clear", "EmptyArg", MODULE_CMD_FUNC(&AwsMdcThroughput::CommandClear), Command::THREAD_UNSAFE},
+const Commands OrcaThroughput::cmds = {
+        {"clear", "EmptyArg", MODULE_CMD_FUNC(&OrcaThroughput::CommandClear), Command::THREAD_UNSAFE},
+        {"get_latest", "OrcaThroughputCommandGetLatestArg", MODULE_CMD_FUNC(&OrcaThroughput::CommandGetLatest),
+                                                                         Command::THREAD_SAFE}
 };
 
-CommandResponse
-AwsMdcThroughput::Init(const bess::pb::EmptyArg &) {
-    return CommandSuccess();
-}
-
-void
-AwsMdcThroughput::DeInit() {
-}
-
-
-CommandResponse
-AwsMdcThroughput::CommandClear(const bess::pb::EmptyArg &) {
-    return CommandSuccess();
-}
-
-void
-AwsMdcThroughput::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
-    int cnt = batch->cnt();
-    uint64_t now_ns = tsc_to_ns(rdtsc());
-
-    if(prev_ns_ == 0) {
-        prev_ns_ = now_ns;
+/**
+ * Returns the total time (in ns) spent for our lable and send algorithm. 
+ * Param: clear (bool), if this param is set, it will clear the counter after the call and else the number will be acummulated
+ */
+CommandResponse OrcaThroughput::CommandGetLatest(const sample::orca_throughput::pb::OrcaThroughputCommandGetLatestArg &arg) 
+{
+    sample::orca_throughput::pb::OrcaThroughputCommandGetLatestResponse r;
+    r.set_timestamp(tsc_to_ns(rdtsc()));
+    r.set_bytes(prev_bytes_cnt_);
+    r.set_packets(prev_pkt_cnt_);
+    if(arg.clear() == 1) {
+        mcslock_node_t mynode;
+        mcs_lock(&lock_, &mynode);
+        prev_bytes_cnt_ = 0;
+        prev_pkt_cnt_ = 0;
+        mcs_unlock(&lock_, &mynode);
     }
+    return CommandSuccess(r);
+}
+
+CommandResponse
+OrcaThroughput::Init(const bess::pb::EmptyArg &) {
+    mcs_lock_init(&lock_);
+    return CommandSuccess();
+}
+
+void
+OrcaThroughput::DeInit() {
+}
+
+
+CommandResponse
+OrcaThroughput::CommandClear(const bess::pb::EmptyArg &) {
+    return CommandSuccess();
+}
+
+void
+OrcaThroughput::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
+    mcslock_node_t mynode;
+    mcs_lock(&lock_, &mynode);
+    
+    int cnt = batch->cnt();
 
     prev_pkt_cnt_ += cnt;
 
     for (int i = 0; i < cnt; i++) {
-        prev_bytes_cnt_ += batch->pkts()[i]->total_len();
+        prev_bytes_cnt_ += (batch->pkts()[i]->total_len() + 24);
     }
-
-    uint64_t diff = now_ns - prev_ns_;
-    if(diff >= kDefaultMaxNs) {
-        std::cout << diff;
-//        std::cout << prev_pkt_cnt_;
-        std::cout << prev_bytes_cnt_;
-        time_idx_ += 1;
-        prev_pkt_cnt_ = 0;
-        prev_bytes_cnt_ = 0;
-        prev_ns_ = now_ns;
-    }
-
+    prev_ns_ = tsc_to_ns(rdtsc());
+    
+    mcs_unlock(&lock_, &mynode);
     RunNextModule(ctx, batch);
 }
 
-ADD_MODULE(AwsMdcThroughput, "aws_mdc_throughput", "measures throughput of MDC pkts at AWS hosts")
+ADD_MODULE(OrcaThroughput, "orca_throughput", "measures rx pkt throughput at Orca agents")
+

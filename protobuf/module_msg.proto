@@ -302,6 +302,16 @@ message PortIncCommandSetBurstArg {
 }
 
 /**
+ * The module SignalPortInc has a function `set_burst(...)` that allows you to specify the
+ * maximum number of packets to be stored in a single PacketBatch released by
+ * the module.
+ */
+message SignalPortIncCommandSetBurstArg {
+  uint64 burst = 1; /// The maximum "burst" of packets (ie, the maximum batch size)
+}
+
+
+/**
  * The module QueueInc has a function `set_burst(...)` that allows you to specify
  * the maximum number of packets to be stored in a single PacketBatch released
  * by the module.
@@ -758,6 +768,20 @@ message PortIncArg {
 }
 
 /**
+ * The SignalPortIncArg module connects to two physical or virtual ports
+ * and releases packets from port upon receiving a message from signal.
+ * SignalPortInc does not support multiqueueing.
+ *
+ * __Input Gates__: 0
+ * __Output Gates__: 1
+ */
+message SignalPortIncArg {
+  string port = 1; /// The portname to connect to.
+  bool prefetch = 2; /// Whether or not to prefetch packets from the port.
+  string signal = 3; /// The portname which will signal a file which should be printed from
+}
+
+/**
  * The PortOut module connects to a physical or virtual port and pushes
  * packets to it. For details on how to configure PortOut with DPDK,
  * virtual ports, libpcap, etc, see the sidebar in the wiki.
@@ -1175,3 +1199,38 @@ message MplsPopArg {
 message WorkerSplitArg {
   map<uint32, uint32> worker_gates = 1; // ogate -> worker mask
 }
+
+/**
+ * This module triggers the reading of a specific file onto the module's
+ * output when triggered from the module's input.
+ *
+ * __Input Gates__: 1
+ * __Output Gates__: 1
+ */
+message SignalFileReaderArg {
+  bytes template = 1; ///The bytes type template which is prepended to every packet sent
+}
+
+/**
+ * This module handles communication to spark and triggering the file reader
+ *
+ * __Input Gates__: 2
+ * __Output Gates__: 2
+ */
+message SparkInterfaceArg{
+  uint32 spark_gate = 1; /// The gate number to send spark packets to
+  uint32 file_gate  = 2; /// The gate number to send file trigger packets to
+  int32 hdr_len = 3; ///Length of header, needed when parsing file writer messages (same as file writer header_len)
+}
+
+/**
+ * AppInterface
+ *
+ * __Input Gates__: 0
+ * __Output Gates__: 1
+ */
+message AppInterfaceArg{
+  bytes template = 1; /// The packet "template". All data packets are derived from this template and contain the 
+  string path = 2;
+}
+

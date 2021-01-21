@@ -1,4 +1,4 @@
-// Copyright (c) 2014-2017, The Regents of the University of California.
+// Copyright (c) 2014-2016, The Regents of the University of California.
 // Copyright (c) 2016-2017, Nefeli Networks, Inc.
 // All rights reserved.
 //
@@ -28,61 +28,45 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef BESS_MODULES_LABELLOOKUP_H_
-#define BESS_MODULES_LABELLOOKUP_H_
+#ifndef BESS_MODULES_WRITER_H_
+#define BESS_MODULES_WRITER_H_
 
-
-#include "module.h"
+#include "../kmod/llring.h"
+#include "../module.h"
+#include "../pb/module_msg.pb.h"
 #include "utils/bits.h"
 #include "utils/endian.h"
 #include "utils/ether.h"
-#include "utils/arp.h"
 #include "utils/ip.h"
 #include "utils/udp.h"
-#include "utils/common.h"
-#include "utils/time.h"
 #include "utils/exact_match_table.h"
 
-#include "pb/aws_mdc_throughput_msg.pb.h"
+#include "pb/file_writer_msg.pb.h"
 
+struct RecverState
+{
+  uint8_t data_id;
+  int64_t data_size;
+  int64_t num_recv_ed;
 
-//using bess::utils::ExactMatchField;
-//using bess::utils::ExactMatchKey;
-//using bess::utils::ExactMatchRuleFields;
-//using bess::utils::ExactMatchTable;
-using bess::utils::Error;
+  FILE *fd_p;
 
-using bess::utils::be16_t;
-using bess::utils::be32_t;
-using bess::utils::be64_t;
-using bess::utils::Ethernet;
-using bess::utils::Arp;
-using bess::utils::Ipv4;
-using bess::utils::Udp;
+  uint8_t is_finished;
+};
 
-class AwsMdcThroughput final : public Module {
+class FileWriter : public Module
+{
+
 public:
-  static const Commands cmds;
+  static const gate_idx_t kNumIGates = 1;
+  static const gate_idx_t kNumOGates = 1;
 
-  AwsMdcThroughput() : Module(), prev_ns_(0), prev_pkt_cnt_(0), prev_bytes_cnt_(0), time_idx_(0) {
-
-  }
-
-  CommandResponse Init(const bess::pb::EmptyArg &arg);
-  void DeInit();
-
+  CommandResponse Init(const sample::file_writer::pb::FileWriterArg &arg);
   void ProcessBatch(Context *ctx, bess::PacketBatch *batch) override;
-
-  CommandResponse CommandClear(const bess::pb::EmptyArg &arg);
-
 private:
-    static const uint64_t kDefaultMaxNs = 1'000'000;  // 1 ms
-
-    uint64_t prev_ns_;
-    uint64_t prev_pkt_cnt_;
-    uint64_t prev_bytes_cnt_;
-    uint64_t time_idx_;
+    std::string write_path_;
+    int32_t h_size_ = 0;
 
 };
 
-#endif // BESS_MODULES_LABELLOOKUP_H_
+#endif // BESS_MODULES_WRITER_H_

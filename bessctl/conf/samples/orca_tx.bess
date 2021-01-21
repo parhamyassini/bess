@@ -1,0 +1,137 @@
+# Copyright (c) 2014-2017, The Regents of the University of California.
+# Copyright (c) 2016-2017, Nefeli Networks, Inc.
+# All rights reserved.
+#
+# Description: Orca traffic generator used in the following experiments:
+#
+# - CPU cycle:
+#	orca_tx.bess <--> orca_rx.bess (See orca_rx.bess for details)
+# 	RANDOMIZED_SESSIONS=True. 
+#	NUM_SESSIONS: Number of active sessions (10K, 100K, ... 500K) used for session ID generation in packets
+#	SESSION_ID_BASE: Base of active session IDs to generate packets for. Same base address should be set in receivers.
+#	ip_encap=True (in make_mdc_unlabeled_data_pkt()): to enable RSS for 64-byte packets
+#	
+# - Controller join delay: 
+#	orca_tx.bess <--> orca_agent_socket.bess (See orca_agent_socket.bess and mdc_controller)
+# 	RANDOMIZED_SESSIONS=False.
+#	NUM_SESSIONSL=N/A.
+#	ip_encap=False. No need for small packet line-rate setting (can be true as well but we used no encapsulation)
+#	ORCA_TGEN_BURST_SIZE=4. Avoid additional latencies introduced by DPDK batch processing.
+#
+# - Any expriment that needs throughput-intensive measurement (up to 10 Gbps) on receiver side.
+#	Rx Throughput: orca_tx.bess <--> orca_rx.bess
+#	Failover response: orca_tx.bess <--> orca_rx.bess
+# 	For all of the above:
+#		RANDOMIZED_SESSIONS=False. 
+#		NUM_SESSIONSL=N/A.
+# 		ip_encap=False.
+#		ORCA_TGEN_BURST_SIZE=32 (default burst).
+
+import mdcpkts
+import time
+
+# Agent IDs we use 
+# port1: 4
+# port2: 16
+# port3: 64
+SOCKET_PATH = "/local-scratch/pyassini/domain_socket_file"
+AGENT_ID = 1
+AGENT_LABEL = 0x01
+AGENT_NIC = '0000:7e:00.0'
+SWITCH_MAC = '06:a6:7e:72:37:92'
+AGENT_MAC = '06:9f:da:98:a4:76'
+#AGENT_MAC = '02:53:55:4d:45:01'
+num_cores = 8
+total_packet_size = 0
+data_pkt_size = int($ORCA_DATA_PKT_SIZE!'1024')
+tgen_burst_size = int($ORCA_TGEN_BURST_SIZE!'32')
+
+RANDOMIZED_SESSIONS = False
+NUM_SESSIONS = 100000
+SESSION_ID_BASE = '02:53:00'
+
+print("This is the Orca agent tx script")
+
+
+ip_list = [
+('7.38.233.147', '55.169.157.31'),
+('208.97.72.186', '157.28.205.149'),
+('117.199.131.176', '79.219.231.247'),
+('213.151.109.0', '44.122.57.30'),
+('138.101.141.33', '197.122.187.56'),
+('228.93.108.53', '64.211.103.156'),
+('178.204.3.28', '4.63.60.250'),
+('16.123.19.226', '10.199.212.27'), 
+]
+
+# ip_encap set to false for controller responsiveness experiment
+# ip_encap set to True in stress tests for 
+pkt_template = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x50505000, pkt_len=data_pkt_size,\
+	src_mac='06:16:3e:1b:72:32', dst_mac='02:53:00:00:00:00',\
+	src_ip=ip_list[0][0], dst_ip=ip_list[0][1],\
+	ip_encap=False)
+
+# pkt_template = mdcpkts.make_mdc_sync_state_pkt(address=0x0253, label=0x50505002,\
+# 	src_mac='06:16:3e:1b:72:32', dst_mac='02:53:55:4d:45:01',\
+# 	ip_encap=False)
+
+print("Packet template len: " + str(len(pkt_template)))
+total_packet_size =  len(pkt_template)
+
+print('Data size = %d' % data_pkt_size)
+print('Total pkt size = %d' % total_packet_size)
+print('Core count = %d' % num_cores)
+
+# If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
+# TODO: this needs to depend on the CPU layout and where the NIC is.
+start_core = 30
+for i in range(num_cores):
+    bess.add_worker(wid=i, core=i + start_core)
+
+# Define Ports and Queues
+port0::PMDPort(port_id=0, num_inc_q=1, num_out_q=4, size_out_q=4096)
+#port1::PMDPort(port_id=1, num_inc_q=1, num_out_q=1, size_out_q=4096)
+
+#port0_inc0::QueueInc(port=port0, qid=0)
+port0_out0::QueueOut(port=port0, qid=0)
+port0_out1::QueueOut(port=port0, qid=1)
+port0_out2::QueueOut(port=port0, qid=2)
+#port1_inc0::QueueInc(port=port1, qid=0)
+#port1_out0::QueueOut(port=port1)
+
+# Traffic generator: this generates data pkts unlike the MdcPktGen that generate ctrl pkts
+# Recommended: Use when the NIC has at least 2 ports, and when you want to generate traffic using BESS
+# Data rate depends on the capacity (Gbps), and data_pkt_size and Ethernet framing overhead (bytes)
+# Creates a source, and limits its pkt rate
+tgen_pkt_rate = (10 * 1e9 / float((total_packet_size + 24) * 8)) / 3
+bess.add_tc('tgen_0', policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)})
+bess.add_tc('tgen_1', policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)})
+bess.add_tc('tgen_2', policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)})
+
+pkt_template_list = []
+tgen_src_0::Source()
+tgen_src_0.attach_task('tgen_0')
+tgen_src_0.set_burst(burst=tgen_burst_size)
+tgen_src_1::Source() 
+tgen_src_1.attach_task('tgen_1')
+tgen_src_1.set_burst(burst=tgen_burst_size)
+tgen_src_2::Source()
+tgen_src_2.attach_task('tgen_2')
+tgen_src_2.set_burst(burst=tgen_burst_size)
+
+# Sends generated traffic on Port1
+if RANDOMIZED_SESSIONS:
+	tgen_src_0 -> Rewrite(templates=[bytes(pkt_template)]) \
+		->  q_out0::Queue(backpressure=1) -> RandomUpdate(fields=[{'offset': 2, 'size': 4, 'min': 0x000000, 'max': 0x000000 + NUM_SESSIONS - 1}]) \
+		-> port0_out0
+
+	tgen_src_1 -> Rewrite(templates=[bytes(pkt_template)]) \
+		-> q_out1::Queue(backpressure=1) -> RandomUpdate(fields=[{'offset': 2, 'size': 4, 'min': 0x000000, 'max': 0x000000 + NUM_SESSIONS - 1}]) -> port0_out1
+
+	tgen_src_2 -> Rewrite(templates=[bytes(pkt_template)]) \
+		-> q_out2::Queue(backpressure=1) -> RandomUpdate(fields=[{'offset': 2, 'size': 4, 'min': 0x000000, 'max': 0x000000 + NUM_SESSIONS - 1}]) -> port0_out2
+else:
+	tgen_src_0 -> Rewrite(templates=[bytes(pkt_template)]) -> port0_out0
+	tgen_src_1 -> Rewrite(templates=[bytes(pkt_template)]) -> port0_out1
+	tgen_src_2 -> Rewrite(templates=[bytes(pkt_template)]) -> port0_out2
+

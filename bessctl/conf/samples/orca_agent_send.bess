@@ -1,0 +1,91 @@
+# Copyright (c) 2014-2017, The Regents of the University of California.
+# Copyright (c) 2016-2017, Nefeli Networks, Inc.
+# All rights reserved.
+#
+# Description: Full mDC agent including file_reader, file_writer and mdc_agent for making an
+#  autonomous agent.
+
+import mdcpkts
+import time
+
+# Agent IDs we use 
+# port1: 4
+# port2: 16
+# port3: 64
+SOCKET_PATH = "/local-scratch/pyassini/domain_socket_file"
+AGENT_ID = 1
+AGENT_LABEL = 0x01
+AGENT_NIC = '0000:7e:00.0'
+SWITCH_MAC = '06:a6:7e:72:37:92'
+AGENT_MAC = '06:9f:da:98:a4:76'
+#AGENT_MAC = '02:53:55:4d:45:01'
+num_cores = 1
+total_packet_size = 800
+#int($MDC_CORES!'8')
+#enable_spark = int($MDC_ENABLE_SPARK!False)
+# SWITCH_IP = '172.31.17.223'
+# AGENT_IP = '172.31.26.147'
+print("This is the Orca agent script")
+
+# Modules for communication with Spark
+#orca_socket = UnixStreamSocketPort(name='orca_socket', path=SOCKET_PATH)
+pkt_template = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x50505000, pkt_len=0, src_mac='06:16:3e:1b:72:32', dst_mac='02:53:55:4d:45:01') 
+orca_socket = OrcaUnixSocketPort(name='orca_socket', path=SOCKET_PATH, template=bytes(pkt_template), enable_time_stamp=0, packet_size=total_packet_size-12)
+#orca_socket = AppInterface(path=SOCKET_PATH, template = bytes(pkt_template))
+# TODO @parham: Check this line, template should be hdr or complete packet?
+unlabeled_data_header = mdcpkts.mdc_unlabeled_data_hdr(label=0x50505000)
+print("Packet template len: " + str(len(pkt_template)))
+
+print('Core count = %d' % num_cores)
+
+mdc_receiver = MdcReceiver(agent_id=AGENT_ID,
+                           agent_label=AGENT_LABEL,
+                           switch_mac=SWITCH_MAC,
+                           agent_mac=AGENT_MAC)
+
+# Adds (session address, label) tuples to the MdcReceiver module
+mdc_receiver.add(entries=[{'addr': '02:53:55:4d:45:01', 'label': 0x50505000}])
+
+# If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
+# TODO: this needs to depend on the CPU layout and where the NIC is.
+start_core = 30
+for i in range(num_cores):
+    bess.add_worker(wid=i, core=i + start_core)
+
+# Define Ports and Queues
+port0::PMDPort(port_id=0, num_inc_q=1, num_out_q=1, size_out_q=4096)
+port1::PMDPort(port_id=1, num_inc_q=1, num_out_q=1, size_out_q=4096)
+
+port0_inc0::QueueInc(port=port0, qid=0)
+port0_out0::QueueOut(port=port0, qid=0)
+port1_inc0::QueueInc(port=port1, qid=0)
+port1_out0::QueueOut(port=port1)
+
+sock_out::PortOut(port='orca_socket')
+sock_in::PortInc(port='orca_socket')
+
+merger::Merge()
+port0_inc0 -> merger
+port1_inc0 -> merger
+merger -> 1:mdc_receiver:1 -> sock_out
+sock_in  ->  0:mdc_receiver:0 -> repl::Replicate(gates=[0,1])
+bess.add_tc('fast', policy='rate_limit', resource='packet', limit={'packet': int(1300000/1)})
+sock_in.attach_task('fast')
+
+repl:0 -> Queue(size=16384, backpressure=1) -> port0_out0
+#repl:1 -> m::Measure(offset=900) -> Dump(interval=0.5) -> port0_out1
+repl:1 -> port1_out0
+
+#bess.resume_all()
+#while(1):
+#    time.sleep(2)
+#    ret = m.get_summary(clear=False,  # reset stats every interval
+#                        latency_percentiles=[55, 99],
+#                        jitter_percentiles=[55, 99])
+#    #print (ret.timestamp)
+#    print ("\nNum Packets: " + str(ret.packets))
+#    print ("Max Latency: " + str(ret.latency.max_ns) + " ns")
+#    print ("Avg Latency: " + str(ret.latency.avg_ns) + " ns")
+#    print ("Sum of latencies: " + str(ret.latency.total_ns) + " ns")
+#    print ("\n****************************")
+

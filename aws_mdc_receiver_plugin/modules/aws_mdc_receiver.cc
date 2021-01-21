@@ -517,7 +517,7 @@ void AwsMdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
         // i_gate = 2: generated ping pkts
 
         bess::Packet *pkt = batch->pkts()[i];
-        Ethernet *eth = pkt->head_data<Ethernet *>();
+        Ethernet *eth = pkt->heavimd_data<Ethernet *>();
 
         // If it's an ARP pkt
         if (eth->ether_type != be16_t(Ethernet::Type::kIpv4)) {

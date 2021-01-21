@@ -1,0 +1,208 @@
+# Copyright (c) 2014-2016, The Regents of the University of California.
+# Copyright (c) 2016-2017, Nefeli Networks, Inc.
+# All rights reserved.
+#
+# Description: Script for (normal multicast | Orca) latency measurements. Will log the per packet latency and save in a file.
+# Used in two different setups:
+#
+#
+# - Measure Orca latency:
+#   multicast_latency.bess <--> multicast_latency_orca_reply.bess
+#   Run this on the machine connected to port0 ($ORCA_AGENT_ID = 1). 
+#       To immitate downstream packet from aggr switch.
+#
+#   The multicast_latency_orca_reply.bess should be running on an active agent.
+#   The packet will go to agent get labeled and will be bounced back to measure the RTT.
+#
+#   
+# - Measure network-based multicast:
+#   Run this on any other machine ($ORCA_AGENT_ID != 1).
+#   This will generate labels that will bounce back from the switch (not going to active agent).
+#   To measure latency from aggregate switch to receiver.
+
+import scapy.all as scapy
+import time
+import mdcpkts
+
+LOG_INTERVAL_S = 20
+EXP_DURATION_S = 10 * LOG_INTERVAL_S
+
+AGENT_ID = 1
+AGENT_LABEL = 0x01
+AGENT_NIC = '0000:7e:00.0'
+SWITCH_MAC = '06:a6:7e:72:37:92'
+AGENT_MAC = '06:9f:da:98:a4:76'
+DUMMY_SRC_MAC = '06:16:3e:1b:72:32'
+DUMMY_DST_MAC = '02:53:55:4d:45:01'
+
+num_cores = 8
+
+ip_list = [
+('7.38.233.147', '55.169.157.31'),
+('208.97.72.186', '157.28.205.149'),
+('117.199.131.176', '79.219.231.247'),
+('213.151.109.0', '44.122.57.30'),
+('138.101.141.33', '197.122.187.56'),
+('228.93.108.53', '64.211.103.156'),
+('178.204.3.28', '4.63.60.250'),
+('16.123.19.226', '10.199.212.27'), 
+]
+
+total_packet_size = 0
+tgen_pkt_rate = 0
+data_pkt_size = int($ORCA_DATA_PKT_SIZE!'1024')
+
+
+try:
+    AGENT_ID = int(os.getenv('ORCA_AGENT_ID', None))
+    AGENT_LABEL = AGENT_ID
+except:
+    print("Error: variable ORCA_AGENT_ID not set")
+    exit(1)
+
+CONCURRENCY_PARAM = 1
+if data_pkt_size <= 256: # Multicore pipline only needed for 64bit pkts
+    CONCURRENCY_PARAM = 2
+if data_pkt_size <= 64: # Multicore pipline only needed for 64bit pkts
+    CONCURRENCY_PARAM = 3
+print("This is the latency measuremet script for normal multicast")
+pkt_template_list =[]
+
+
+for i in range(CONCURRENCY_PARAM):
+    ## Doing this manually to ensure that packets with pkt_template0 will be received on queue 0
+    # if i == 0:
+    #     ip_idx = 4
+    # elif i == 1:
+    #     ip_idx == 6
+    # elif i == 2:
+    #     ip_idx == 2
+    # elif i == 3:
+    #     ip_idx == 7
+    # * For normal multicast (run this script on active agent):
+    #  - We want the packet to bounce back to the current agent for measurement 
+    #    so use active agent ID as ToR label (0x04)
+    # * For Orca multicast (run this script on agent 0x01 aka ramses):
+    # Use unlabled packets
+    if AGENT_ID == 1:
+        pkt_template = mdcpkts.make_mdc_unlabeled_data_pkt(label=0x50505000, pkt_len=data_pkt_size,    
+                                                        src_mac=DUMMY_SRC_MAC, dst_mac=DUMMY_DST_MAC,
+                                                        src_ip=ip_list[i % CONCURRENCY_PARAM][0], dst_ip=ip_list[i % CONCURRENCY_PARAM][1],
+                                                        ip_encap=True)
+    else: 
+        pkt_template = mdcpkts.make_mdc_labeled_data_pkt(label=0x50505004, pkt_len=data_pkt_size,    
+                                                        src_mac=DUMMY_SRC_MAC, dst_mac=DUMMY_DST_MAC,
+                                                        src_ip=ip_list[i % CONCURRENCY_PARAM][0], dst_ip=ip_list[i % CONCURRENCY_PARAM][1],
+                                                        ip_encap=True)
+    pkt_template_list.append(pkt_template)
+
+print("Packet template len: " + str(len(pkt_template_list[0])))
+total_packet_size =  len(pkt_template_list[0])
+
+print('Data size = %d' % data_pkt_size)
+print('Total pkt size = %d' % total_packet_size)
+print('Core count = %d' % num_cores)
+
+# If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
+# TODO: this needs to depend on the CPU layout and where the NIC is.
+if AGENT_ID == 1: # for ramses NUMA
+    start_core = 10
+else:
+    start_core = 0
+for i in range(num_cores):
+    bess.add_worker(wid=i, core=i + start_core)
+
+tgen_pkt_rate = (10 * 1e9 / float((total_packet_size + 24) * 8)) / CONCURRENCY_PARAM
+# Define Ports and Queues
+port0::PMDPort(port_id=0, num_inc_q=CONCURRENCY_PARAM, num_out_q=CONCURRENCY_PARAM, size_out_q=512, size_inc_q=512)
+pot_inc_list = []
+port_out_list = []
+probe_list = []
+#QueueInc(port=port0, qid=1, prefetch=1) -> Sink()
+#QueueInc(port=port0, qid=2, prefetch=1) -> Sink()
+#QueueInc(port=port0, qid=3, prefetch=1) -> Sink()
+for i in range(CONCURRENCY_PARAM):
+    bess.add_tc('tgen'+str(i), policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)}, wid=i)
+    tgen_src = Source()
+    tgen_src.set_burst(burst=4)
+    tgen_src.attach_task('tgen' + str(i))
+    port0_out = QueueOut(port=port0, qid=i)
+    
+    #if i == 1:
+    port0_inc = QueueInc(port=port0, qid=i, prefetch=1)
+    port0_inc.set_burst(burst=4)
+    tgen_src -> Rewrite(templates=[bytes(pkt_template_list[i])])\
+     -> RandomUpdate(fields=[{'offset': 26, 'size': 2, 'min': 0x0000, 'max': 0xffff - 1}]) -> Timestamp(offset=total_packet_size - 20 - 2*i) -> port0_out
+    m = Measure(offset=total_packet_size - 20 - 2 * i)
+    port0_inc -> m -> Sink()
+    probe_list.append(m)
+    port0_inc.attach_task(wid=i)
+    #else:
+    #    tgen_src -> Rewrite(templates=[bytes(pkt_template_list[i])]) -> Timestamp(offset=total_packet_size - 20 - 2*i) -> port0_out
+        # port0_inc -> Sink()
+
+start_time = time.time()
+last_time = start_time
+
+bess.resume_all()
+
+print('{} RTT (us)                             '.format(' ' * 41), end='')
+print('   jitter (us)')
+print('{}    avg    min    25%    50%    75%   99%  max'.format(' ' * 41), end='')
+print('      avg    min    25%    50%    75%   99%  max')
+last_time_list = [0] * CONCURRENCY_PARAM
+num_steps = 10
+percentile_list = list(range(0, 101))
+seconds_passed = 0
+while True:
+    time.sleep(LOG_INTERVAL_S)
+    seconds_passed += LOG_INTERVAL_S
+    # get_summary() doesn't require workers to be stopped
+    num_steps += 1
+    if num_steps <= 9:
+        tgen_pkt_rate += (1 * 1e9 / float((total_packet_size + 24) * 8)) / CONCURRENCY_PARAM
+    for i in range(CONCURRENCY_PARAM):
+        bess.update_tc_params('tgen'+str(i), resource='packet', limit={'packet': int(tgen_pkt_rate)})
+    for i in range(len(probe_list)):
+        ret = probe_list[i].get_summary(clear=False,  # reset stats every interval
+                            latency_percentiles=percentile_list,
+                            jitter_percentiles=[1, 25, 50, 75, 99])
+
+        diff_ts = ret.timestamp - last_time_list[i]
+        diff_pkts = ret.packets / diff_ts
+        diff_bits = ret.bits / diff_ts
+        last_time_list[i] = ret.timestamp
+
+        
+        print('%12.6f: %5.3f Mpps, %8.3f Mbps, ' \
+              '%7.3f %6.1f %6.1f %6.1f %6.1f %6.1f %8.1f   %7.3f %6.1f %6.1f %6.1f %6.1f %6.1f %8.1f' %
+              (ret.timestamp - start_time,
+               diff_pkts / 1e6,
+               diff_bits / 1e6,
+               ret.latency.avg_ns / 1e3,
+               ret.latency.min_ns / 1e3,
+               ret.latency.percentile_values_ns[25] / 1e3,
+               ret.latency.percentile_values_ns[50] / 1e3,
+               ret.latency.percentile_values_ns[75] / 1e3,
+               ret.latency.percentile_values_ns[99] / 1e3,
+               ret.latency.max_ns / 1e3,
+               ret.jitter.avg_ns / 1e3,
+               ret.jitter.min_ns / 1e3,
+               ret.jitter.percentile_values_ns[1] / 1e3,
+               ret.jitter.percentile_values_ns[2] / 1e3,
+               ret.jitter.percentile_values_ns[3] / 1e3,
+               ret.jitter.percentile_values_ns[4] / 1e3,
+               ret.jitter.max_ns / 1e3))
+
+        if (seconds_passed >= EXP_DURATION_S):
+            with open('../results/latency_inc_' + str(data_pkt_size) + '_probe_' + str(i) +'.txt', 'w') as file:
+                file.write('Mean: ' + str(ret.latency.avg_ns / 1e3) + '\n')
+                file.write('\n'.join(str(latency_ns / 1e3) for latency_ns in ret.latency.percentile_values_ns))
+            
+            with open('../results/jitter_inc_' + str(data_pkt_size) + '_probe_' + str(i) +'.txt', 'w') as file:
+                file.write('Mean: ' + str(ret.jitter.avg_ns / 1e3) + '\n')
+                file.write('\n'.join(str(jitter_ns / 1e3) for jitter_ns in ret.jitter.percentile_values_ns))
+
+            print('\n\n Saved results.\n\n')
+            if i == len(probe_list) - 1:
+                exit(0)

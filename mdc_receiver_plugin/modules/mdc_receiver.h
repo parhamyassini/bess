@@ -38,6 +38,7 @@
 #include "utils/ether.h"
 #include "utils/mdc.h"
 #include "utils/exact_match_table.h"
+#include "utils/histogram.h"
 
 #include "pb/mdc_receiver_msg.pb.h"
 
@@ -50,6 +51,7 @@ using bess::utils::Error;
 
 using bess::utils::be16_t;
 using bess::utils::be32_t;
+using bess::utils::be64_t;
 using bess::utils::Ethernet;
 using bess::utils::Mdc;
 
@@ -59,8 +61,37 @@ using bess::utils::Mdc;
 #define MDC_DEFAULT_TABLE_SIZE 1024
 #define MDC_MAX_BUCKET_SIZE 8
 
+#define MDC_OUTPUT_TOR 0
+#define MDC_OUTPUT_INTERNAL 1
+#define MDC_OUTPUT_HC 2
+
+#define MDC_INPUT_APP 0 
+#define MDC_INPUT_EXT 1
+
+#define MDC_PKT_TYPE_MASK    0x00000000000000ff
+#define MDC_PKT_AGENT_MASK   0x000000000000ff00
+#define MDC_PKT_ADDRESS_MASK 0x00000000ffff0000
+#define MDC_PKT_LABEL_MASK   0xffffffff00000000
+
+#define MDC_PKT_IP_TYPE_MASK    0x000000ff00000000 // After reading the first 64 bits
+#define MDC_PKT_IP_AGENT_MASK   0x0000ff0000000000 // After reading the first 64 bits
+#define MDC_PKT_IP_ADDRESS_MASK 0xffff000000000000 // After reading the first 64 bits
+#define MDC_PKT_IP_LABEL_MASK   0x00000000ffffffff // After reading the second 64 bits
+
 typedef uint64_t mac_addr_t;
 typedef uint32_t mdc_label_t;
+typedef uint8_t mdc_mode_t;
+
+
+enum MDCPacketType {
+  MDC_TYPE_UNLABELED = 0x01,
+  MDC_TYPE_LABELED = 0x02,
+  MDC_TYPE_SET_ACTIVE_AGENT = 0x00,
+  MDC_TYPE_PING = 0xF0,
+  MDC_TYPE_PONG = 0xF1,
+  MDC_TYPE_SYNC_STATE = 0xF2,
+  MDC_TYPE_SYNC_STATE_DONE = 0xF3,
+};
 
 struct alignas(32) mdc_entry {
     union {
@@ -81,18 +112,20 @@ struct mdc_table {
     uint64_t count;
 };
 
-
 class MdcReceiver final : public Module {
 public:
   static const Commands cmds;
+  // Three Outputs: Port0_out direct, App gate (File writer)
   static const gate_idx_t kNumOGates = 2;
+  // Three Inputs: App gate, ext_gate(port0) and packet_generator
   static const gate_idx_t kNumIGates = 3;
 
-    MdcReceiver() : Module(), agent_id_(), agent_label_(), mdc_table_(),
-//                    switch_ip_(), switch_mac_(), agent_ip_(), agent_mac_(),
-                    emit_ping_pkt_(true), gen_ping_pkts_count_(0) {
-        max_allowed_workers_ = Worker::kMaxWorkers;
-    }
+  MdcReceiver() : Module(), agent_id_(), agent_label_(), mdc_table_(),
+                     switch_mac_(), agent_mac_(), ip_encap_(),
+                     emit_ping_pkt_(true), gen_ping_pkts_count_(0),
+                     p_latency_enabled_(true), p_latency_first_pkt_rec_ns_(), p_latency_rtt_hist_(0, 1){
+      max_allowed_workers_ = Worker::kMaxWorkers;
+  }
 
   CommandResponse Init(const sample::mdc_receiver::pb::MdcReceiverArg &arg);
   void DeInit();
@@ -101,21 +134,36 @@ public:
 
   CommandResponse CommandAdd(const sample::mdc_receiver::pb::MdcReceiverCommandAddArg &arg);
   CommandResponse CommandClear(const bess::pb::EmptyArg &arg);
+  //CommandResponse CommandSetActiveAgent(const sample::mdc_receiver::pb::MdcReceiverCommandSetActiveAgentArg &arg);
+  CommandResponse CommandGetLatency(const sample::mdc_receiver::pb::MdcReceiverCommandGetLatencyArg &arg);
+  CommandResponse CommandGetCycle(const sample::mdc_receiver::pb::MdcReceiverCommandGetCycleArg &arg);
 
 private:
-    gate_idx_t agent_id_;
-    mdc_label_t agent_label_;
+  uint32_t agent_id_;
+  uint32_t agent_label_;
+  uint64_t total_time_ = 0;
+  uint64_t total_cycle_ = 0;
+  //bool is_active_agent_ = 0;
+  struct mdc_table mdc_table_;
 
-    struct aws_mdc_table mdc_table_;
+  Ethernet::Address switch_mac_;
+  Ethernet::Address agent_mac_;
 
-//    be32_t switch_ip_;
-//    Ethernet::Address switch_mac_;
-//
-//    be32_t agent_ip_;
-//    Ethernet::Address agent_mac_;
+  uint64_t total_frwrd_app_pkts = 0;
+  uint64_t total_rec_pkts_ = 0;
+  uint64_t total_tor_pkt = 0;
+  bool ip_encap_;
+  bool emit_ping_pkt_;
+  uint64_t gen_ping_pkts_count_;
 
-    bool emit_ping_pkt_;
-    uint64_t gen_ping_pkts_count_;
+  bool p_latency_enabled_;
+  uint64_t p_latency_first_pkt_rec_ns_;
+  Histogram<uint64_t> p_latency_rtt_hist_;
+  
+  /* These are the functions that actually do the processing after dividing packets */
+  void DoProcessAppBatch(Context *ctx, bess::PacketBatch *batch);
+  void DoProcessExtBatch(Context *ctx, bess::PacketBatch *batch);
+  void LabelAndSendPacket(Context *ctx, bess::Packet *pkt, bool is_external);
 };
 
 #endif // BESS_MODULES_LABELLOOKUP_H_

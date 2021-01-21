@@ -29,7 +29,7 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 #include "mdc_pkt_gen.h"
-
+#include <cmath>
 
 const Commands MdcPktGen::cmds = {
         {"update", "MdcPktGenArg", MODULE_CMD_FUNC(&MdcPktGen::CommandUpdate),
@@ -54,10 +54,6 @@ MdcPktGen::ProcessUpdatableArgs(const sample::mdc_pkt_gen::pb::MdcPktGenArg &arg
         }
 
         const char *tmpl = arg.template_().c_str();
-        const Ethernet *eth = reinterpret_cast<const Ethernet *>(tmpl);
-        if (eth->ether_type != be16_t(Mdc::kControlHealthType)) {
-            return CommandFailure(EINVAL, "'template' is not MDC Health Check");
-        }
 
         template_size_ = arg.template_().length();
         memset(tmpl_, 0, MAX_TEMPLATE_SIZE);
