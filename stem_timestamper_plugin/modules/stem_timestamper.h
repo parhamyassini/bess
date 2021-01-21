@@ -1,5 +1,5 @@
+// Copyright (c) 2014-2017, The Regents of the University of California.
 // Copyright (c) 2016-2017, Nefeli Networks, Inc.
-// Copyright (c) 2017, Cloudigo.
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -28,30 +28,59 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef BESS_UTILS_MDC_H_
-#define BESS_UTILS_MDC_H_
+#ifndef BESS_MODULES_LABELLOOKUP_H_
+#define BESS_MODULES_LABELLOOKUP_H_
 
-#include <cstdint>
-#include <string>
-#include <type_traits>
+#include <map>
 
-#include "endian.h"
+#include "module.h"
+#include "utils/bits.h"
+#include "utils/endian.h"
+#include "utils/time.h"
+#include "utils/checksum.h"
+#include "utils/ether.h"
+#include "utils/arp.h"
+#include "utils/ip.h"
+#include "utils/udp.h"
+#include "utils/histogram.h"
+#include "utils/exact_match_table.h"
 
-namespace bess {
-    namespace utils {
+#include "pb/stem_timestamper_msg.pb.h"
 
-        struct [[gnu::packed]] Mdc {
-            static const uint16_t kDataLabeledType = 0xdd00;
-            static const uint16_t kDataUnlabeledType = 0xdd01;
-            static const uint16_t kControlSetAgentType = 0xcc00;
-            static const uint16_t kControlPingType = 0xcc01;
-            static const uint16_t kControlPongType = 0xcc02;
-            static const uint16_t kControlSyncStateType = 0xcc03;
-            static const uint16_t kControlSyncStateDoneType = 0xcc04;
+using bess::utils::Error;
 
-        };
+using bess::utils::be16_t;
+using bess::utils::be32_t;
+using bess::utils::be64_t;
+using bess::utils::Ethernet;
+using bess::utils::Arp;
+using bess::utils::Ipv4;
+using bess::utils::Udp;
 
-    }  // namespace utils
-}  // namespace bess
+#define AWS_MAX_INTF_COUNT 8
 
-#endif  // BESS_UTILS_MDC_H_
+class StemTimeStamper final : public Module {
+public:
+  static const Commands cmds;
+  static const gate_idx_t kNumIGates = 1;
+  static const gate_idx_t kNumOGates = 1;
+
+    StemTimeStamper() : Module() {
+      max_allowed_workers_ = Worker::kMaxWorkers;
+  }
+
+  CommandResponse Init(const sample::stem_timestamper::pb::StemTimeStamperArg &arg);
+  void DeInit();
+
+  void ProcessBatch(Context *ctx, bess::PacketBatch *batch) override;
+
+  CommandResponse CommandClear(const bess::pb::EmptyArg &arg);
+
+private:
+    static const uint64_t kDefaultNsPerBucket = 100;
+    static const uint64_t kDefaultMaxNs = 10'000'000;  // 10 ms
+
+//    Histogram<uint64_t> rtt_hist_;
+};
+
+#endif // BESS_MODULES_LABELLOOKUP_H_

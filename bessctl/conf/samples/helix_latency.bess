@@ -1,0 +1,100 @@
+# Copyright (c) 2014-2017, The Regents of the University of California.
+# Copyright (c) 2016-2017, Nefeli Networks, Inc.
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+# list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+# this list of conditions and the following disclaimer in the documentation
+# and/or other materials provided with the distribution.
+#
+# * Neither the names of the copyright holders nor the names of their
+# contributors may be used to endorse or promote products derived from this
+# software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+
+import scapy.all as scapy
+
+DATA_RATE = 10  # Gbps
+CONST_DATA_SIZE = 14 + 16
+
+num_cores = int($BESS_CORES!'10')
+data_pkt_size = int($BESS_DATA_PKT_SIZE!'128')
+
+assert 64 <= data_pkt_size <= 1024, 'Data pkts needs to be in the range [64, 1024] in bytes'
+
+print('Core count = %d' % num_cores)
+print('Data pkt size = %d' % data_pkt_size)
+
+# Data pkt
+class HelixData(scapy.Packet):
+    name = 'Helix '
+    fields_desc=[scapy.IntField('label1', 0),
+                 scapy.IntField('label2', 0),
+                 scapy.IntField('label3' , 0),
+                 scapy.IntField('label4' , 0)]
+
+# Data pkt template
+#s1_eth = scapy.Ether(src='F8:F2:1E:13:CA:FC', dst='00:00:00:00:00:01', type=0xdddd)
+#s1_helix = HelixData(label1=67111060, label2=2148532224, label3=0, label4=0)
+#s1_data = b"\0" * (data_pkt_size - CONST_DATA_SIZE)
+#s1_pkt = s1_eth/s1_helix/s1_data
+#s1_pkt_bytes = bytes(s1_pkt)
+
+s2_eth = scapy.Ether(src='F8:F2:1E:13:CA:FC', dst='00:00:00:00:00:02', type=0xdddd)
+s2_helix = HelixData(label1=50380928, label2=33554432, label3=16777216, label4=0)
+s2_data = b"\0" * (data_pkt_size - CONST_DATA_SIZE)
+s2_pkt = s2_eth/s2_helix/s2_data
+s2_pkt_bytes = bytes(s2_pkt)
+
+pkt_bytes = s2_pkt_bytes
+
+# If in NUMA system, ensure to use CPU cores in the same socket of your NIC.
+# TODO: this needs to depend on the CPU layout and where the NIC is.
+start_core = 10
+for i in range(num_cores):
+    bess.add_worker(wid=i, core=i+start_core)
+
+# Define Ports and Queues
+port0::PMDPort(port_id=4, num_inc_q=1, num_out_q=1)
+port1::PMDPort(port_id=5, num_inc_q=1, num_out_q=1)
+
+port1_inc0::QueueInc(port=port1, qid=0)
+port0_out0::QueueOut(port=port0, qid=0)
+
+
+
+# Creates mDC modules: a receiver, a control pkt generator and Health check
+helix_ts = HelixTimeStamper()
+helix_ts_reader = HelixTSReader()
+
+port1_inc0 -> helix_ts_reader
+
+
+# Traffic generator: this generates data pkts unlike the MdcPktGen that generate ctrl pkts
+# Recommended: Use when the NIC has at least 2 ports, and when you want to generate traffic using BESS
+# Data rate depends on the capacity (Gbps), and data_pkt_size and Ethernet framing overhead (bytes)
+tgen_pkt_rate = DATA_RATE * 1e9 / (8 * (data_pkt_size + 24))
+bess.add_tc('tgen', policy='rate_limit', resource='packet', limit={'packet': int(tgen_pkt_rate)})
+
+# Creates a source, and limits its pkt rate
+tgen_src::Source()
+tgen_src.attach_task('tgen')
+
+# Sends generated traffic on Port1
+tgen_src -> Rewrite(templates=[pkt_bytes]) -> helix_ts -> port0_out0

@@ -812,4 +812,3 @@ void MdcReceiver::ProcessBatch(Context *ctx, bess::PacketBatch *batch) {
 
 ADD_MODULE(MdcReceiver, "mdc_receiver",
            "processing MDC pkts")
-
